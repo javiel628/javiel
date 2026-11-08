@@ -20,7 +20,6 @@
 const fs = require('fs');
 const path = require('path');
 const { downloadMediaMessage, generateWAMessageContent, generateWAMessageFromContent } = require('./lib/baileys');
-const { sendMenuCarousel } = require('./lib/menu-carousel');
 const config = require('./config');
 const { FONT_NAMES } = require('./lib/fonts');
 const { serializeMessage } = require('./lib/serializer');
@@ -248,8 +247,77 @@ function buildAllMenuText(session, m) {
     return lines.join('\n').trim();
 }
 
-async function sendMenu(m, session, categoryKey = null) {
+async function sendMenu(m, session, categoryKey = null, sock = null) {
     const { settings } = session;
+    const configuredImage = settings.get('menuImage') || DEFAULT_MENU_IMAGE;
+    const mentions = m?.sender ? [m.sender] : [];
+
+    // The main .menu/.help screen is a native WhatsApp swipe carousel.
+    // Individual category menus and .allmenu keep their readable text layout.
+    if (!categoryKey && sock && typeof generateWAMessageContent === 'function' &&
+        typeof generateWAMessageFromContent === 'function' && typeof sock.relayMessage === 'function') {
+        try {
+            const categoryEntries = Object.entries(CATEGORY_MAP);
+            const imagePayload = menuImagePayload(configuredImage);
+            const cards = await Promise.all(categoryEntries.map(async ([key, item], index) => {
+                const imageContent = await generateWAMessageContent(
+                    { image: imagePayload },
+                    { upload: sock.waUploadToServer }
+                );
+                const prefix = settings.get('prefix', config.prefix) || '.';
+                const commands = item.items.map(command => `• ${prefix}${command}`).join('\n');
+                const cardText = `${item.desc}\n\n${commands}`;
+                const imageMessage = imageContent.imageMessage;
+                return {
+                    header: {
+                        title: item.title,
+                        hasMediaAttachment: true,
+                        imageMessage
+                    },
+                    body: { text: cardText },
+                    footer: { text: `亗 SHADOW MD 亗  •  PAGE ${index + 1}/${categoryEntries.length}` },
+                    nativeFlowMessage: {
+                        buttons: [{
+                            name: 'cta_url',
+                            buttonParamsJson: JSON.stringify({
+                                display_text: 'SHADOW MD CHANNEL',
+                                url: CHANNEL.link,
+                                merchant_url: CHANNEL.link
+                            })
+                        }]
+                    }
+                };
+            }));
+
+            const carousel = generateWAMessageFromContent(
+                m.from,
+                {
+                    viewOnceMessage: {
+                        message: {
+                            messageContextInfo: {
+                                deviceListMetadata: {},
+                                deviceListMetadataVersion: 2
+                            },
+                            interactiveMessage: {
+                                body: {
+                                    text: `亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗\n\nWelcome to the SHADOW MD command centre. Swipe through the cards to explore every category.`
+                                },
+                                footer: { text: `DEVELOPER: ${author}  |  Use ${settings.get('prefix', config.prefix)}help for commands` },
+                                carouselMessage: { cards }
+                            }
+                        }
+                    }
+                },
+                { userJid: sock.user?.id, quoted: m.raw }
+            );
+
+            await sock.relayMessage(m.from, carousel.message, { messageId: carousel.key.id });
+            return carousel;
+        } catch (err) {
+            log.error('menu', `carousel menu failed; using text menu: ${err.message}`);
+        }
+    }
+
     let fullText = '';
     if (!categoryKey) {
         fullText = buildMainDashboardText(session, m);
@@ -259,54 +327,12 @@ async function sendMenu(m, session, categoryKey = null) {
         fullText = buildCategoryMenuText(session, m, categoryKey);
     }
 
-    const configuredImage = settings.get('menuImage') || DEFAULT_MENU_IMAGE;
-    const mentions = m?.sender ? [m.sender] : [];
-
     try {
-        return await m.send({
-            image: menuImagePayload(configuredImage),
-            caption: fullText,
-            mentions,
-        });
+        return await m.send({ image: menuImagePayload(configuredImage), caption: fullText, mentions });
     } catch (err) {
-        log.error('menu', `configured menu image failed: ${err.message}`);
-        if (configuredImage !== DEFAULT_MENU_IMAGE) {
-            try {
-                return await m.send({
-                    image: { url: DEFAULT_MENU_IMAGE },
-                    caption: fullText,
-                    mentions,
-                });
-            } catch (fallbackErr) {
-                log.error('menu', `default menu image failed: ${fallbackErr.message}`);
-            }
-        }
+        log.error('menu', `menu image failed: ${err.message}`);
         return m.reply(fullText, { mentions });
     }
-}
-
-
-async function sendCarouselMenu(m, sock, session) {
-    const configuredImage = session.settings.get('menuImage') || DEFAULT_MENU_IMAGE;
-    const prefix = session.settings.get('prefix', config.prefix) || '.';
-
-    return sendMenuCarousel({
-        m,
-        sock,
-        from: m.from,
-        rawMessage: m.raw,
-        categories: Object.values(CATEGORY_MAP),
-        image: menuImagePayload(configuredImage),
-        prefix,
-        channelUrl: CHANNEL.link,
-        menuTitle: `✨ *${botName(session.settings, config)} COMMAND MENU* ⚡`,
-        generateWAMessageContent,
-        generateWAMessageFromContent,
-        onFallback: (error) => {
-            log.error('menu', `carousel failed; using the standard menu: ${error.message}`);
-            return sendMenu(m, session);
-        },
-    });
 }
 
 async function getQuotedMessage(m) {
@@ -357,72 +383,68 @@ async function handleCommand(m, { args, sock, session }) {
 
     try {
         switch (cmd) {
-        case 'menu2':
-        case 'help2':
-            return sendCarouselMenu(m, sock, session);
-
         case 'menu':
         case 'help': {
             const sub = (args[0] || '').toLowerCase().trim();
-            if (!sub) return sendMenu(m, session);
-            if (['all', 'full'].includes(sub)) return sendMenu(m, session, 'all');
-            if (['owner', 'root', 'dev'].includes(sub)) return sendMenu(m, session, 'owner');
-            if (['group', 'gc', 'admin', 'mod'].includes(sub)) return sendMenu(m, session, 'group');
-            if (['sticker', 'stk', 'media'].includes(sub)) return sendMenu(m, session, 'sticker');
-            if (['audio', 'vn', 'voice', 'sound'].includes(sub)) return sendMenu(m, session, 'audio');
-            if (['dl', 'download', 'down'].includes(sub)) return sendMenu(m, session, 'download');
-            if (['ai', 'gpt', 'bot'].includes(sub)) return sendMenu(m, session, 'ai');
-            if (['tool', 'tools', 'utility'].includes(sub)) return sendMenu(m, session, 'tools');
-            if (['search', 'lookup', 'find'].includes(sub)) return sendMenu(m, session, 'search');
-            if (['sec', 'security', 'protect'].includes(sub)) return sendMenu(m, session, 'security');
-            return sendMenu(m, session);
+            if (!sub) return sendMenu(m, session, null, sock);
+            if (['all', 'full'].includes(sub)) return sendMenu(m, session, 'all', sock);
+            if (['owner', 'root', 'dev'].includes(sub)) return sendMenu(m, session, 'owner', sock);
+            if (['group', 'gc', 'admin', 'mod'].includes(sub)) return sendMenu(m, session, 'group', sock);
+            if (['sticker', 'stk', 'media'].includes(sub)) return sendMenu(m, session, 'sticker', sock);
+            if (['audio', 'vn', 'voice', 'sound'].includes(sub)) return sendMenu(m, session, 'audio', sock);
+            if (['dl', 'download', 'down'].includes(sub)) return sendMenu(m, session, 'download', sock);
+            if (['ai', 'gpt', 'bot'].includes(sub)) return sendMenu(m, session, 'ai', sock);
+            if (['tool', 'tools', 'utility'].includes(sub)) return sendMenu(m, session, 'tools', sock);
+            if (['search', 'lookup', 'find'].includes(sub)) return sendMenu(m, session, 'search', sock);
+            if (['sec', 'security', 'protect'].includes(sub)) return sendMenu(m, session, 'security', sock);
+            return sendMenu(m, session, null, sock);
         }
 
         case 'allmenu':
         case 'fullmenu':
-            return sendMenu(m, session, 'all');
+            return sendMenu(m, session, 'all', sock);
 
         case 'ownermenu':
         case 'ownerhelp':
         case 'rootmenu':
-            return sendMenu(m, session, 'owner');
+            return sendMenu(m, session, 'owner', sock);
 
         case 'groupmenu':
         case 'gcmenu':
         case 'modmenu':
-            return sendMenu(m, session, 'group');
+            return sendMenu(m, session, 'group', sock);
 
         case 'stickermenu':
         case 'stkmenu':
         case 'mediamenu':
-            return sendMenu(m, session, 'sticker');
+            return sendMenu(m, session, 'sticker', sock);
 
         case 'audiomenu':
         case 'vnmenu':
         case 'voicemenu':
-            return sendMenu(m, session, 'audio');
+            return sendMenu(m, session, 'audio', sock);
 
         case 'dlmenu':
         case 'downloadmenu':
         case 'downmenu':
-            return sendMenu(m, session, 'download');
+            return sendMenu(m, session, 'download', sock);
 
         case 'aimenu':
         case 'aihelp':
-            return sendMenu(m, session, 'ai');
+            return sendMenu(m, session, 'ai', sock);
 
         case 'toolmenu':
         case 'toolsmenu':
         case 'utilitymenu':
-            return sendMenu(m, session, 'tools');
+            return sendMenu(m, session, 'tools', sock);
 
         case 'searchmenu':
         case 'lookupmenu':
-            return sendMenu(m, session, 'search');
+            return sendMenu(m, session, 'search', sock);
 
         case 'secmenu':
         case 'securitymenu':
-            return sendMenu(m, session, 'security');
+            return sendMenu(m, session, 'security', sock);
 
         
         // ───────────────────────── group moderation & tools ─────────────────────────
