@@ -166,7 +166,7 @@ async function sendShadowCarouselMenu(m, sock) {
         }
     ];
 
-    const imageUrl = "https://url.bwmxmd.online/Adams.tnn0fm6w.jpg";
+    const imageUrl = "https://files.catbox.moe/6s94uf.jpeg";
     const channelUrl = CHANNEL.link || "https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B";
 
     try {
