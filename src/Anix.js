@@ -78,11 +78,11 @@ function formatUptime(seconds) {
 }
 
 
+
 async function sendShadowCarouselMenu(m, sock) {
     const imageUrl = 'https://files.catbox.moe/6s94uf.jpeg';
 
-    const channelUrl =
-        CHANNEL.link ||
+    const channelUrl = CHANNEL.link ||
         'https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B';
 
     const categories = [
@@ -149,80 +149,66 @@ async function sendShadowCarouselMenu(m, sock) {
         '⚡ Welcome to SHADOW MD',
         '━━━━━━━━━━━━━━━━━━',
         '',
-        ...categories.map((category, index) => {
-            return [
-                `*${index + 1}. ${category.title}*`,
-                category.commands.map(command => `╠❏ .${command}`).join('\n'),
-                ''
-            ].join('\n');
-        }),
+        ...categories.flatMap((category, index) => [
+            `*${index + 1}. ${category.title}*`,
+            ...category.commands.map(command => `╠❏ .${command}`),
+            ''
+        ]),
         '━━━━━━━━━━━━━━━━━━',
         `📢 *CHANNEL:* ${channelUrl}`,
         '',
-        `⚡ *DEVELOPER:* 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙`,
+        `⚡ *DEVELOPER:* ${author}`,
         '亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃* 亗'
     ].join('\n');
 
     try {
-        let imageBuffer;
-
+        // Send menu image separately, without blocking the text menu.
         try {
             const response = await fetch(imageUrl, {
                 signal: AbortSignal.timeout(15000)
             });
 
-            if (!response.ok) {
-                throw new Error(`Image HTTP ${response.status}`);
+            if (response.ok) {
+                const imageBuffer = Buffer.from(
+                    await response.arrayBuffer()
+                );
+
+                if (imageBuffer.length) {
+                    await sock.sendMessage(
+                        m.from,
+                        {
+                            image: imageBuffer,
+                            caption: '✨ *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗* ✨'
+                        },
+                        { quoted: m.raw }
+                    );
+                }
             }
-
-            imageBuffer = Buffer.from(
-                await response.arrayBuffer()
-            );
-
-            if (!imageBuffer.length) {
-                throw new Error('Downloaded image is empty');
-            }
-
         } catch (imageError) {
             log.error(
                 'menu-image',
                 imageError.stack || imageError.message
             );
-
-            imageBuffer = null;
         }
 
-        // Send menu image
-        if (imageBuffer) {
-            try {
-                await m.reply({
-                    image: imageBuffer,
-                    caption: '✨ *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗* ✨'
-                });
-            } catch (imageReplyError) {
-                log.error(
-                    'menu-image-send',
-                    imageReplyError.stack || imageReplyError.message
-                );
-            }
-        }
-
-        // Send complete menu text
-        await m.reply(menuText);
-
-        log.info(
-            'menu',
-            `SHADOW MD menu sent to ${m.from}`
+        // Always attempt to send the actual menu.
+        await sock.sendMessage(
+            m.from,
+            { text: menuText },
+            { quoted: m.raw }
         );
+
+        log.info('menu', `SHADOW MD menu sent to ${m.from}`);
 
     } catch (error) {
-        log.error(
-            'menu',
-            error.stack || error.message
-        );
+        log.error('menu', error.stack || error.message);
 
         try {
-            await m.reply(menuText);
+            await sock.sendMessage(
+                m.from,
+                { text: menuText },
+                { quoted: m.raw }
+            );
         } catch (fallbackError) {
             log.error(
                 'menu-fallback',
@@ -231,6 +217,13 @@ async function sendShadowCarouselMenu(m, sock) {
         }
     }
 }
+
+        
+        
+        
+
+            
+            
 
 
 
