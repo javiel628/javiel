@@ -77,94 +77,108 @@ function formatUptime(seconds) {
     return parts.join(' ');
 }
 
+
 async function sendShadowCarouselMenu(m, sock) {
-    const {
-        generateWAMessageContent,
-        generateWAMessageFromContent
-    } = require('./lib/baileys');
+    const imageUrl = 'https://files.catbox.moe/6s94uf.jpeg';
+    const channelUrl = CHANNEL.link || 'https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B';
 
     const categories = [
         {
-            title: "📊 SYSTEM",
-            desc: `• ping
-• public
-• private
-• autoread
-• autorecord
-• autotyping
-• checksettings
-• setdp
-• setmenu
-• setmenuimage
-• setmenuvideo
-• setprefix`
+            title: '📊 SYSTEM',
+            commands: 'ping • public • private • autoread • autorecord • autotyping • checksettings • setdp • setmenu • setmenuimage • setmenuvideo • setprefix'
         },
         {
-            title: "🥁 ANALYSIS",
-            desc: `• weather
-• checktime
-• gitclone
-• repo
-• fact
-• claude-ai
-• gitstalk
-• ssweb
-• whois
-• scan`
+            title: '🥁 ANALYSIS',
+            commands: 'weather • checktime • gitclone • repo • fact • claude-ai • gitstalk • ssweb • whois • scan'
         },
         {
-            title: "🛟 MEDIA",
-            desc: `• tiktok
-• play
-• song
-• igdl
-• fb
-• video
-• ytmp3
-• playdoc
-• mediafire`
+            title: '🛟 MEDIA',
+            commands: 'tiktok • play • song • igdl • fb • video • ytmp3 • playdoc • mediafire'
         },
         {
-            title: "👥 GROUP",
-            desc: `• add
-• kick
-• promote
-• demote
-• antilink
-• antitag
-• antipromote
-• antidemote
-• antibadword
-• tagall
-• hidetag
-• mute
-• unmute`
+            title: '👥 GROUP',
+            commands: 'add • kick • promote • demote • antilink • antitag • antipromote • antidemote • antibadword • tagall • hidetag • mute • unmute'
         },
         {
-            title: "📍 CONVERSION",
-            desc: `• toaudio
-• tovoicenote
-• toimage`
+            title: '📍 CONVERSION',
+            commands: 'toaudio • tovoicenote • toimage'
         },
         {
-            title: "🤠 DEVELOPER",
-            desc: `• addcase
-• addfile
-• delcase
-• delfile
-• restart`
+            title: '🤠 DEVELOPER',
+            commands: 'addcase • addfile • delcase • delfile • restart'
         },
         {
-            title: "👤 BASIC",
-            desc: `• copilot
-• cat
-• getcase
-• ls
-• >
-• <
-• =>`
+            title: '👤 BASIC',
+            commands: 'copilot • cat • getcase • ls • > • < • =>'
         }
     ];
+
+    const menuText = [
+        '亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 𝐌𝐀𝐈𝐍 𝐌𝐄𝐍𝐔* 亗',
+        '',
+        '⚡ Welcome to SHADOW MD',
+        '',
+        ...categories.map((category, index) =>
+            `*${index + 1}. ${category.title}*\n${category.commands}`
+        ),
+        '',
+        '━━━━━━━━━━━━━━━━━━',
+        `📢 *CHANNEL:* ${channelUrl}`,
+        '━━━━━━━━━━━━━━━━━━',
+        '亗 *𝐃𝐄𝐕𝐄𝐋𝐎𝐏𝐄𝐑:* 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙',
+        '亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃*'
+    ].join('\n');
+
+    try {
+        let imageBuffer = null;
+
+        try {
+            const response = await fetch(imageUrl, {
+                signal: AbortSignal.timeout(15000)
+            });
+
+            if (!response.ok) {
+                throw new Error(`Image HTTP ${response.status}`);
+            }
+
+            imageBuffer = Buffer.from(await response.arrayBuffer());
+        } catch (imageError) {
+            log.error('menu-image', imageError.stack || imageError.message);
+        }
+
+        if (imageBuffer) {
+            await sock.sendMessage(
+                m.from,
+                {
+                    image: imageBuffer,
+                    caption: '✨ *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 𝐌𝐄𝐍𝐔 亗* ⚡'
+                },
+                { quoted: m.raw }
+            );
+        }
+
+        await sock.sendMessage(
+            m.from,
+            { text: menuText },
+            { quoted: m.raw }
+        );
+
+        log.info('menu', `SHADOW MD menu delivered through sendMessage to ${m.from}`);
+
+    } catch (error) {
+        log.error('menu', error.stack || error.message);
+
+        try {
+            await sock.sendMessage(
+                m.from,
+                { text: menuText }
+            );
+        } catch (fallbackError) {
+            log.error('menu-fallback', fallbackError.stack || fallbackError.message);
+        }
+    }
+}
+
 
     const imageUrl = "https://files.catbox.moe/6s94uf.jpeg";
     const channelUrl = CHANNEL.link || "https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B";
