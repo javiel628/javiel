@@ -144,6 +144,10 @@ const SHADOW_MENU_CATEGORIES = [
     }
 ];
 
+
+
+
+
 async function sendShadowCarouselMenu(m, sock, settings) {
     const channelUrl = CHANNEL.link || 'https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B';
     const prefix = settings.get('prefix', config.prefix);
@@ -204,6 +208,56 @@ async function sendShadowCarouselMenu(m, sock, settings) {
         log.error('menu', error.stack || error.message);
     }
 }
+
+
+
+
+
+
+function getShadowMenuButtonId(raw) {
+    let message = raw?.message || {};
+    // Unwrap common WhatsApp message wrappers before reading the response.
+    message = message.ephemeralMessage?.message
+        || message.viewOnceMessage?.message
+        || message.viewOnceMessageV2?.message
+        || message.documentWithCaptionMessage?.message
+        || message;
+
+    // Interactive response (native flow buttons)
+    const interactive = message.interactiveResponseMessage;
+    if (interactive) {
+        const paramsJson = interactive.nativeFlowResponseMessage?.paramsJson;
+        if (paramsJson) {
+            try {
+                const params = JSON.parse(paramsJson);
+                if (params.id) return String(params.id);
+            } catch {}
+        }
+    }
+
+    // List response (what a listMessage returns)
+    const list = message.listResponseMessage;
+    if (list) {
+        const rowId = list.singleSelectReply?.selectedRowId;
+        if (rowId) return String(rowId);
+    }
+
+    // Buttons / template buttons
+    return message.buttonsResponseMessage?.selectedButtonId
+        || message.templateButtonReplyMessage?.selectedId
+        || null;
+}
+
+async function handleShadowMenuButton(sock, raw, settings) {
+    // ... (your code from the last step) ...
+
+
+
+
+
+
+
+
 
 async function handleShadowMenuButton(sock, raw, settings) {
     const buttonId = getShadowMenuButtonId(raw);
