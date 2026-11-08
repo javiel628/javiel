@@ -1,0 +1,17 @@
+# SHADOW MD WhatsApp configuration
+BOT_NAME=亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗
+PREFIX=.
+# Optional 8-character custom pairing code (letters/numbers); leave blank for a WhatsApp-generated code
+CUSTOM_PAIRING_CODE=SMILEMOD
+START_IMAGE_URL=https://files.catbox.moe/6s94uf.jpeg
+
+# ── 亗 SHADOW LINK 亗 pairing server ──
+# Port the host gives you (most hosts set this automatically)
+PORT=3000
+# Optional: only needed if ANOTHER website should pair through this bot (the built-in site works without it)
+PAIR_API_KEY=
+# Your bot's public address, e.g. https://shadow-md.onrender.com (keeps free hosts awake)
+PUBLIC_URL=https://smilemodz.onrender.com/
+
+# Only used by `npm run standalone` (old terminal mode)
+PAIRING_NUMBER=
