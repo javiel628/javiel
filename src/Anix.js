@@ -144,157 +144,152 @@ const SHADOW_MENU_CATEGORIES = [
     }
 ];
 
-
-
-    // WhatsApp's listMessage protocol does not support an image header.
-    async function sendShadowCarouselMenu(m, sock, settings) {
+async function sendShadowCarouselMenu(m, sock, settings) {
     const channelUrl = CHANNEL.link || 'https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B';
+    const prefix = settings.get('prefix', config.prefix);
+    
     const menuText = [
-        '亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 — COMMAND CENTER* 亗',
+        '亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 MAIN MENU* 亗',
         '',
         '⚡ Welcome to SHADOW MD',
         '━━━━━━━━━━━━━━━━━━━━',
-        '📌 Select a category using the MENU button below.',
+        '👇 *Tap the MENU button below to open categories.*',
         '',
         `📢 *CHANNEL:* ${channelUrl}`,
         `👨‍💻 *DEVELOPER:* ${author}`,
-        '亗 *POWERED BY SHADOW MD* 亗'
+        '亗 *SHADOW MD* 亗'
     ].join('\n');
 
-    const prefix = settings.get('prefix', config.prefix);
-
     try {
-        // Artwork (custom via .setmenuimg, else default)
         let imageBuffer = null;
         const configuredImage = settings.get('menuImage', '') || '';
         const imageSource = configuredImage || 'https://files.catbox.moe/6s94uf.jpeg';
+        
         try {
             if (/^https?:\/\//i.test(imageSource)) {
                 const response = await fetch(imageSource, { signal: AbortSignal.timeout(15000) });
                 if (response.ok) imageBuffer = Buffer.from(await response.arrayBuffer());
-            } else if (typeof imageSource === 'string' && fs.existsSync(imageSource)) {
+            } else if (fs.existsSync(imageSource)) {
                 imageBuffer = fs.readFileSync(imageSource);
             }
-        } catch (imgErr) {
-            log.warn('menu-image', imgErr.message);
+        } catch (e) {
+            log.warn('menu-image', e.message);
         }
+
+        const interactiveMessage = {
+            body: { text: menuText },
+            footer: { text: "Powered by SHADOW MD" },
+            nativeFlowMessage: {
+                buttons: [
+                    {
+                        name: "quick_reply",
+                        buttonParamsJson: JSON.stringify({
+                            display_text: "📂 OPEN MENU",
+                            id: "shadow_open_menu"
+                        })
+                    }
+                ]
+            }
+        };
 
         if (imageBuffer?.length) {
-            await sock.sendMessage(
-                m.from,
-                { image: imageBuffer, caption: menuText },
-                { quoted: m.raw }
-            );
+            await sock.sendMessage(m.from, { image: imageBuffer, caption: menuText }, { quoted: m.raw });
+            await sock.sendMessage(m.from, { interactiveMessage }, { quoted: m.raw });
         } else {
             await sock.sendMessage(m.from, { text: menuText }, { quoted: m.raw });
+            await sock.sendMessage(m.from, { interactiveMessage }, { quoted: m.raw });
         }
-    } catch (imageError) {
-        log.warn('menu-image', imageError.message);
-    }
 
-    // Interactive list — must be wrapped as { listMessage: {...} }
-    const listMessage = {
-        text: '👇 *OPEN THE SHADOW MD MENU*\nChoose a command category:',
-        footer: `亗 SHADOW MD • ${author} 亗`,
-        title: '⚡ SHADOW MD CATEGORIES',
-        buttonText: 'OPEN MENU',
-        sections: SHADOW_MENU_CATEGORIES.map(category => ({
-            title: category.title,
-            rows: [{
-                title: category.title,
-                description: `${category.commands.length} commands • Tap to view`,
-                rowId: category.id
-            }]
-        }))
-    };
-
-    try {
-        await sock.sendMessage(m.from, { listMessage }, { quoted: m.raw });
-        log.info('menu', `Interactive list menu sent to ${m.from}`);
     } catch (error) {
         log.error('menu', error.stack || error.message);
-        // Fallback: numbered text menu (works even when listMessage is unsupported)
-        const fallback = SHADOW_MENU_CATEGORIES
-            .map((c, i) => `${i + 1}. *${c.title}* — ${c.commands.length} commands`)
-            .join('\n');
-        await sock.sendMessage(m.from, {
-            text: `👇 *SHADOW MD MENU*\n\n${fallback}\n\nReply with a number to open a category, or use *${prefix}menu* again.`
-        }, { quoted: m.raw }).catch(fallbackError => log.error('menu-fallback', fallbackError.message));
     }
 }
 
-function getShadowMenuButtonId(raw) {
-    let message = raw?.message || {};
-    // Unwrap common WhatsApp message wrappers before reading the response.
-    message = message.ephemeralMessage?.message
-        || message.viewOnceMessage?.message
-        || message.viewOnceMessageV2?.message
-        || message.documentWithCaptionMessage?.message
-        || message;
-
-    // Interactive response (native flow buttons)
-    const interactive = message.interactiveResponseMessage;
-    if (interactive) {
-        const paramsJson = interactive.nativeFlowResponseMessage?.paramsJson;
-        if (paramsJson) {
-            try {
-                const params = JSON.parse(paramsJson);
-                if (params.id) return String(params.id);
-            } catch {}
-        }
-    }
-
-    // List response (what a listMessage returns)
-    const list = message.listResponseMessage;
-    if (list) {
-        const rowId = list.singleSelectReply?.selectedRowId;
-        if (rowId) return String(rowId);
-    }
-
-    // Buttons / template buttons
-    return message.buttonsResponseMessage?.selectedButtonId
-        || message.templateButtonReplyMessage?.selectedId
-        || null;
-}
 async function handleShadowMenuButton(sock, raw, settings) {
     const buttonId = getShadowMenuButtonId(raw);
     if (!buttonId) return false;
 
-    // Handle numbered reply fallback: "1".."7" maps to a category
+    const prefix = settings.get('prefix', config.prefix);
+
+    // 1. User tapped "OPEN MENU"
+    if (buttonId === 'shadow_open_menu') {
+        const categories = SHADOW_MENU_CATEGORIES;
+        
+        // Split into chunks of 3 (WhatsApp limit)
+        const chunks = [];
+        for (let i = 0; i < categories.length; i += 3) {
+            chunks.push(categories.slice(i, i + 3));
+        }
+
+        for (let c = 0; c < chunks.length; c++) {
+            const chunk = chunks[c];
+            const pageNum = c + 1;
+            const totalPages = chunks.length;
+
+            const buttons = chunk.map(cat => ({
+                name: "quick_reply",
+                buttonParamsJson: JSON.stringify({
+                    display_text: cat.title,
+                    id: cat.id
+                })
+            }));
+
+            const interactiveMessage = {
+                body: { text: `亗 *SHADOW MD CATEGORIES* 亗\n\nChoose a category (${pageNum}/${totalPages}):` },
+                footer: { text: "Tap a button to view commands" },
+                nativeFlowMessage: { buttons: buttons }
+            };
+
+            await sock.sendMessage(raw.key.remoteJid, { interactiveMessage }, { quoted: raw });
+        }
+        return true;
+    }
+
+    // 2. User tapped a specific Category (e.g., shadow_cat_group)
     let category = SHADOW_MENU_CATEGORIES.find(item => item.id === buttonId);
+    
+    // Fallback for number replies (1-7)
     if (!category && /^\d{1,2}$/.test(buttonId)) {
         category = SHADOW_MENU_CATEGORIES[parseInt(buttonId, 10) - 1];
     }
     if (!category) return false;
 
-    const prefix = settings.get('prefix', config.prefix);
+    // Format the command list
     const commandLines = category.commands.map((command, index) =>
         `│ ${String(index + 1).padStart(2, '0')}  ❯  *${prefix}${command}*`
     );
-    const response = [
+    
+    const responseText = [
         `亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 — ${category.title}* 亗`,
         '━━━━━━━━━━━━━━━━━━',
         ...commandLines,
         '━━━━━━━━━━━━━━━━━━',
-        'Tap another category from the menu to browse more.'
+        'Reply with a number or type the command.'
     ].join('\n');
 
-    await sock.sendMessage(
-        raw.key.remoteJid,
-        { text: response },
-        { quoted: raw }
-    );
+    // Send the commands with a "Back to Menu" button
+    const interactiveMessage = {
+        body: { text: responseText },
+        footer: { text: `亗 SHADOW MD 亗` },
+        nativeFlowMessage: {
+            buttons: [
+                {
+                    name: "quick_reply",
+                    buttonParamsJson: JSON.stringify({
+                        display_text: "🔙 BACK TO MENU",
+                        id: "shadow_open_menu"
+                    })
+                }
+            ]
+        }
+    };
+
+    await sock.sendMessage(raw.key.remoteJid, { interactiveMessage }, { quoted: raw });
     return true;
 }
+        
 
-async function getQuotedMessage(m) {
-    const ctx = m.raw.message?.[m.type]?.contextInfo;
-    if (!ctx?.quotedMessage) return null;
-    return {
-        key: { remoteJid: m.from, id: ctx.stanzaId, participant: ctx.participant },
-        message: ctx.quotedMessage,
-    };
-}
+
 
 /** on/off words -> true/false, anything else -> null (meaning "just show the status") */
 function parseSwitch(arg) {
