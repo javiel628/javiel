@@ -248,8 +248,6 @@ function getShadowMenuButtonId(raw) {
         || null;
 }
 
-async function handleShadowMenuButton(sock, raw, settings) {
-    // ... (your code from the last step) ...
 
 
 
