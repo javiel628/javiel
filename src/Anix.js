@@ -145,12 +145,8 @@ const SHADOW_MENU_CATEGORIES = [
 ];
 
 
-
-
-
 async function sendShadowCarouselMenu(m, sock, settings) {
     const channelUrl = CHANNEL.link || 'https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B';
-    const prefix = settings.get('prefix', config.prefix);
     
     const menuText = [
         '亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 MAIN MENU* 亗',
@@ -165,6 +161,7 @@ async function sendShadowCarouselMenu(m, sock, settings) {
     ].join('\n');
 
     try {
+        // 1. Get the image
         let imageBuffer = null;
         const configuredImage = settings.get('menuImage', '') || '';
         const imageSource = configuredImage || 'https://files.catbox.moe/6s94uf.jpeg';
@@ -180,9 +177,17 @@ async function sendShadowCarouselMenu(m, sock, settings) {
             log.warn('menu-image', e.message);
         }
 
+        // 2. Send the image with the text
+        if (imageBuffer?.length) {
+            await sock.sendMessage(m.from, { image: imageBuffer, caption: menuText }, { quoted: m.raw });
+        } else {
+            await sock.sendMessage(m.from, { text: menuText }, { quoted: m.raw });
+        }
+
+        // 3. Send the BUTTON as a separate message right underneath
         const interactiveMessage = {
-            body: { text: menuText },
-            footer: { text: "Powered by SHADOW MD" },
+            body: { text: '👇 *Click below to browse commands*' },
+            footer: { text: "亗 SHADOW MD 亗" },
             nativeFlowMessage: {
                 buttons: [
                     {
@@ -196,18 +201,14 @@ async function sendShadowCarouselMenu(m, sock, settings) {
             }
         };
 
-        if (imageBuffer?.length) {
-            await sock.sendMessage(m.from, { image: imageBuffer, caption: menuText }, { quoted: m.raw });
-            await sock.sendMessage(m.from, { interactiveMessage }, { quoted: m.raw });
-        } else {
-            await sock.sendMessage(m.from, { text: menuText }, { quoted: m.raw });
-            await sock.sendMessage(m.from, { interactiveMessage }, { quoted: m.raw });
-        }
+        await sock.sendMessage(m.from, { interactiveMessage }, { quoted: m.raw });
 
     } catch (error) {
         log.error('menu', error.stack || error.message);
     }
 }
+
+
 
 
 
