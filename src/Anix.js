@@ -1459,7 +1459,6 @@ const SHADOW_MENU_CATEGORIES = [
         ]
     },
     
-        },
     {
         id: 'shadow_cat_bugs',
         title: '🦠BUGS',
