@@ -144,8 +144,10 @@ const SHADOW_MENU_CATEGORIES = [
     }
 ];
 
-async function sendShadowCarouselMenu(m, sock, settings) {
-    const fallbackImageUrl = 'https://files.catbox.moe/6s94uf.jpeg';
+
+
+    // WhatsApp's listMessage protocol does not support an image header.
+    async function sendShadowCarouselMenu(m, sock, settings) {
     const channelUrl = CHANNEL.link || 'https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B';
     const menuText = [
         '亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 — COMMAND CENTER* 亗',
@@ -159,65 +161,65 @@ async function sendShadowCarouselMenu(m, sock, settings) {
         '亗 *POWERED BY SHADOW MD* 亗'
     ].join('\n');
 
-    let menuMessage = null;
+    const prefix = settings.get('prefix', config.prefix);
 
     try {
-        // Use a custom image set with .setmenuimg when available; otherwise use the default artwork.
-        const configuredImage = settings.get('menuImage', '') || '';
-        const imageSource = configuredImage || fallbackImageUrl;
+        // Artwork (custom via .setmenuimg, else default)
         let imageBuffer = null;
-
-        if (/^https?:\/\//i.test(imageSource)) {
-            const response = await fetch(imageSource, { signal: AbortSignal.timeout(15000) });
-            if (response.ok) imageBuffer = Buffer.from(await response.arrayBuffer());
-        } else if (typeof imageSource === 'string' && fs.existsSync(imageSource)) {
-            imageBuffer = fs.readFileSync(imageSource);
+        const configuredImage = settings.get('menuImage', '') || '';
+        const imageSource = configuredImage || 'https://files.catbox.moe/6s94uf.jpeg';
+        try {
+            if (/^https?:\/\//i.test(imageSource)) {
+                const response = await fetch(imageSource, { signal: AbortSignal.timeout(15000) });
+                if (response.ok) imageBuffer = Buffer.from(await response.arrayBuffer());
+            } else if (typeof imageSource === 'string' && fs.existsSync(imageSource)) {
+                imageBuffer = fs.readFileSync(imageSource);
+            }
+        } catch (imgErr) {
+            log.warn('menu-image', imgErr.message);
         }
 
         if (imageBuffer?.length) {
-            menuMessage = await sock.sendMessage(
+            await sock.sendMessage(
                 m.from,
                 { image: imageBuffer, caption: menuText },
                 { quoted: m.raw }
             );
+        } else {
+            await sock.sendMessage(m.from, { text: menuText }, { quoted: m.raw });
         }
     } catch (imageError) {
         log.warn('menu-image', imageError.message);
     }
 
-    // WhatsApp's listMessage protocol does not support an image header.
-    // Send the artwork with the menu caption, then attach the interactive list directly after it.
+    // Interactive list — must be wrapped as { listMessage: {...} }
     const listMessage = {
-        text: '👇 *OPEN THE SHADOW MD MENU*\\nChoose a command category:',
+        text: '👇 *OPEN THE SHADOW MD MENU*\nChoose a command category:',
         footer: `亗 SHADOW MD • ${author} 亗`,
         title: '⚡ SHADOW MD CATEGORIES',
         buttonText: 'OPEN MENU',
-        sections: [
-            {
-                title: '📂 COMMAND CATEGORIES',
-                rows: SHADOW_MENU_CATEGORIES.map(category => ({
-                    title: category.title,
-                    description: `${category.commands.length} commands • Tap to view`,
-                    rowId: category.id
-                }))
-            }
-        ]
+        sections: SHADOW_MENU_CATEGORIES.map(category => ({
+            title: category.title,
+            rows: [{
+                title: category.title,
+                description: `${category.commands.length} commands • Tap to view`,
+                rowId: category.id
+            }]
+        }))
     };
 
     try {
-        await sock.sendMessage(
-            m.from,
-            listMessage,
-            { quoted: menuMessage || m.raw }
-        );
+        await sock.sendMessage(m.from, { listMessage }, { quoted: m.raw });
         log.info('menu', `Interactive list menu sent to ${m.from}`);
     } catch (error) {
         log.error('menu', error.stack || error.message);
-        await sock.sendMessage(
-            m.from,
-            { text: `${menuText}\\n\\n⚠️ Interactive list unavailable. You can still use ${settingsPrefix(m)}menu.` },
-            { quoted: menuMessage || m.raw }
-        ).catch(fallbackError => log.error('menu-fallback', fallbackError.message));
+        // Fallback: numbered text menu (works even when listMessage is unsupported)
+        const fallback = SHADOW_MENU_CATEGORIES
+            .map((c, i) => `${i + 1}. *${c.title}* — ${c.commands.length} commands`)
+            .join('\n');
+        await sock.sendMessage(m.from, {
+            text: `👇 *SHADOW MD MENU*\n\n${fallback}\n\nReply with a number to open a category, or use *${prefix}menu* again.`
+        }, { quoted: m.raw }).catch(fallbackError => log.error('menu-fallback', fallbackError.message));
     }
 }
 
@@ -227,28 +229,42 @@ function getShadowMenuButtonId(raw) {
     message = message.ephemeralMessage?.message
         || message.viewOnceMessage?.message
         || message.viewOnceMessageV2?.message
+        || message.documentWithCaptionMessage?.message
         || message;
 
+    // Interactive response (native flow buttons)
     const interactive = message.interactiveResponseMessage;
     if (interactive) {
-        const paramsJson = interactive.nativeFlowResponseMessage?.paramsJson || '{}';
-        try {
-            const params = JSON.parse(paramsJson);
-            if (params.id) return String(params.id);
-        } catch {}
+        const paramsJson = interactive.nativeFlowResponseMessage?.paramsJson;
+        if (paramsJson) {
+            try {
+                const params = JSON.parse(paramsJson);
+                if (params.id) return String(params.id);
+            } catch {}
+        }
     }
 
+    // List response (what a listMessage returns)
+    const list = message.listResponseMessage;
+    if (list) {
+        const rowId = list.singleSelectReply?.selectedRowId;
+        if (rowId) return String(rowId);
+    }
+
+    // Buttons / template buttons
     return message.buttonsResponseMessage?.selectedButtonId
         || message.templateButtonReplyMessage?.selectedId
-        || message.listResponseMessage?.singleSelectReply?.selectedRowId
         || null;
 }
-
 async function handleShadowMenuButton(sock, raw, settings) {
     const buttonId = getShadowMenuButtonId(raw);
-    if (!buttonId || !buttonId.startsWith('shadow_cat_')) return false;
+    if (!buttonId) return false;
 
-    const category = SHADOW_MENU_CATEGORIES.find(item => item.id === buttonId);
+    // Handle numbered reply fallback: "1".."7" maps to a category
+    let category = SHADOW_MENU_CATEGORIES.find(item => item.id === buttonId);
+    if (!category && /^\d{1,2}$/.test(buttonId)) {
+        category = SHADOW_MENU_CATEGORIES[parseInt(buttonId, 10) - 1];
+    }
     if (!category) return false;
 
     const prefix = settings.get('prefix', config.prefix);
