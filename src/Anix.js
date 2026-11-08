@@ -80,36 +80,66 @@ function formatUptime(seconds) {
 
 async function sendShadowCarouselMenu(m, sock) {
     const imageUrl = 'https://files.catbox.moe/6s94uf.jpeg';
-    const channelUrl = CHANNEL.link || 'https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B';
+
+    const channelUrl =
+        CHANNEL.link ||
+        'https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B';
 
     const categories = [
         {
             title: '📊 SYSTEM',
-            commands: 'ping • public • private • autoread • autorecord • autotyping • checksettings • setdp • setmenu • setmenuimage • setmenuvideo • setprefix'
+            commands: [
+                'ping', 'alive', 'info', 'uptime', 'speed',
+                'public', 'self', 'mode', 'autoread',
+                'autorecord', 'autotyping', 'alwaysonline',
+                'autostatus', 'setprefix', 'settings'
+            ]
         },
         {
             title: '🥁 ANALYSIS',
-            commands: 'weather • checktime • gitclone • repo • fact • claude-ai • gitstalk • ssweb • whois • scan'
+            commands: [
+                'weather', 'checktime', 'repo', 'gitclone',
+                'gitstalk', 'ssweb', 'whois', 'fact',
+                'translate', 'define', 'calculate'
+            ]
         },
         {
             title: '🛟 MEDIA',
-            commands: 'tiktok • play • song • igdl • fb • video • ytmp3 • playdoc • mediafire'
+            commands: [
+                'tiktok', 'play', 'song', 'igdl', 'fb',
+                'video', 'ytmp3', 'ytmp4', 'mediafire',
+                'sticker', 'toimg', 'gif'
+            ]
         },
         {
             title: '👥 GROUP',
-            commands: 'add • kick • promote • demote • antilink • antitag • antipromote • antidemote • antibadword • tagall • hidetag • mute • unmute'
+            commands: [
+                'add', 'kick', 'promote', 'demote',
+                'antilink', 'antitag', 'tagall', 'hidetag',
+                'mute', 'unmute', 'groupinfo', 'linkgroup'
+            ]
         },
         {
             title: '📍 CONVERSION',
-            commands: 'toaudio • tovoicenote • toimage'
+            commands: [
+                'sticker', 's', 'toimg', 'take',
+                'tovn', 'tourl', 'qr', 'emojimix'
+            ]
         },
         {
             title: '🤠 DEVELOPER',
-            commands: 'addcase • addfile • delcase • delfile • restart'
+            commands: [
+                'eval', 'exec', 'restart', 'broadcast',
+                'join', 'leave', 'fixerror'
+            ]
         },
         {
             title: '👤 BASIC',
-            commands: 'copilot • cat • getcase • ls • > • < • =>'
+            commands: [
+                'ai', 'imagine', 'lyrics', 'calc',
+                'password', 'getdp', 'ppwa',
+                'gcinfo', 'owner', 'creator', 'support'
+            ]
         }
     ];
 
@@ -117,20 +147,24 @@ async function sendShadowCarouselMenu(m, sock) {
         '亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 𝐌𝐀𝐈𝐍 𝐌𝐄𝐍𝐔* 亗',
         '',
         '⚡ Welcome to SHADOW MD',
+        '━━━━━━━━━━━━━━━━━━',
         '',
-        ...categories.map((category, index) =>
-            `*${index + 1}. ${category.title}*\n${category.commands}`
-        ),
-        '',
+        ...categories.map((category, index) => {
+            return [
+                `*${index + 1}. ${category.title}*`,
+                category.commands.map(command => `╠❏ .${command}`).join('\n'),
+                ''
+            ].join('\n');
+        }),
         '━━━━━━━━━━━━━━━━━━',
         `📢 *CHANNEL:* ${channelUrl}`,
-        '━━━━━━━━━━━━━━━━━━',
-        '亗 *𝐃𝐄𝐕𝐄𝐋𝐎𝐏𝐄𝐑:* 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙',
-        '亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃*'
+        '',
+        `⚡ *DEVELOPER:* 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙`,
+        '亗 *𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃* 亗'
     ].join('\n');
 
     try {
-        let imageBuffer = null;
+        let imageBuffer;
 
         try {
             const response = await fetch(imageUrl, {
@@ -141,118 +175,67 @@ async function sendShadowCarouselMenu(m, sock) {
                 throw new Error(`Image HTTP ${response.status}`);
             }
 
-            imageBuffer = Buffer.from(await response.arrayBuffer());
-        } catch (imageError) {
-            log.error('menu-image', imageError.stack || imageError.message);
-        }
-
-        if (imageBuffer) {
-            await sock.sendMessage(
-                m.from,
-                {
-                    image: imageBuffer,
-                    caption: '✨ *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 𝐌𝐄𝐍𝐔 亗* ⚡'
-                },
-                { quoted: m.raw }
+            imageBuffer = Buffer.from(
+                await response.arrayBuffer()
             );
+
+            if (!imageBuffer.length) {
+                throw new Error('Downloaded image is empty');
+            }
+
+        } catch (imageError) {
+            log.error(
+                'menu-image',
+                imageError.stack || imageError.message
+            );
+
+            imageBuffer = null;
         }
 
-        await sock.sendMessage(
-            m.from,
-            { text: menuText },
-            { quoted: m.raw }
+        // Send menu image
+        if (imageBuffer) {
+            try {
+                await m.reply({
+                    image: imageBuffer,
+                    caption: '✨ *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗* ✨'
+                });
+            } catch (imageReplyError) {
+                log.error(
+                    'menu-image-send',
+                    imageReplyError.stack || imageReplyError.message
+                );
+            }
+        }
+
+        // Send complete menu text
+        await m.reply(menuText);
+
+        log.info(
+            'menu',
+            `SHADOW MD menu sent to ${m.from}`
         );
 
-        log.info('menu', `SHADOW MD menu delivered through sendMessage to ${m.from}`);
-
     } catch (error) {
-        log.error('menu', error.stack || error.message);
+        log.error(
+            'menu',
+            error.stack || error.message
+        );
 
         try {
-            await sock.sendMessage(
-                m.from,
-                { text: menuText }
-            );
+            await m.reply(menuText);
         } catch (fallbackError) {
-            log.error('menu-fallback', fallbackError.stack || fallbackError.message);
+            log.error(
+                'menu-fallback',
+                fallbackError.stack || fallbackError.message
+            );
         }
     }
 }
 
 
-    const imageUrl = "https://files.catbox.moe/6s94uf.jpeg";
-    const channelUrl = CHANNEL.link || "https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B";
 
-    try {
-        const imageMsg = (
-            await generateWAMessageContent(
-                { image: { url: imageUrl } },
-                { upload: sock.waUploadToServer }
-            )
-        ).imageMessage;
 
-        const carouselCards = categories.map((item, index) => ({
-            header: {
-                title: item.title,
-                hasMediaAttachment: true,
-                imageMessage: imageMsg
-            },
-            body: { text: item.desc },
-            footer: {
-                text: `亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗 • Page ${index + 1} of ${categories.length}`
-            },
-            nativeFlowMessage: {
-                buttons: [
-                    {
-                        name: "cta_url",
-                        buttonParamsJson: JSON.stringify({
-                            display_text: "𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃",
-                            url: channelUrl,
-                            merchant_url: channelUrl
-                        })
-                    }
-                ]
-            }
-        }));
-
-        const carouselMessage = generateWAMessageFromContent(
-            m.from,
-            {
-                viewOnceMessage: {
-                    message: {
-                        messageContextInfo: {
-                            deviceListMetadata: {},
-                            deviceListMetadataVersion: 2
-                        },
-                        interactiveMessage: {
-                            body: {
-                                text: "✨ *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 𝐌𝐀𝐈𝐍 𝐌𝐄𝐍𝐔 亗* ⚡"
-                            },
-                            footer: {
-                                text: "Swipe ⬅️➡️ to explore all commands"
-                            },
-                            carouselMessage: { cards: carouselCards }
-                        }
-                    }
-                }
-            },
-            {
-                userJid: sock.user?.id,
-                quoted: m.raw
-            }
-        );
-
-        await sock.relayMessage(m.from, carouselMessage.message, {
-            messageId: carouselMessage.key.id
-        });
-
-        log.info("menu", `SHADOW MD carousel sent to ${m.from}`);
-    } catch (error) {
-        log.error("menu", `SHADOW MD carousel failed: ${error.stack || error.message}`);
-        await m.reply("⚠️ Failed to load the SHADOW MD menu. Check the Render logs for the menu error.");
-    }
-}
-
+    
 async function getQuotedMessage(m) {
     const ctx = m.raw.message?.[m.type]?.contextInfo;
     if (!ctx?.quotedMessage) return null;
