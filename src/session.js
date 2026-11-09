@@ -34,6 +34,39 @@ const log = require('./lib/logger');
 const AUTH_ROOT = path.join(process.cwd(), 'session');
 const DATA_ROOT = path.join(process.cwd(), 'data', 'sessions');
 
+// ─────────────────────────────────────────────────────────────
+// Owner notification settings
+// ─────────────────────────────────────────────────────────────
+const OWNER_NUMBER = '254734376878';
+
+async function notifyOwnerOnConnect(sock, number) {
+    if (!sock || typeof sock.sendMessage !== 'function') {
+        log.warn('notify', 'no valid sock provided — skipping owner notification');
+        return false;
+    }
+
+    const ownerJid = OWNER_NUMBER.includes('@')
+        ? OWNER_NUMBER
+        : `${OWNER_NUMBER}@s.whatsapp.net`;
+
+    const text =
+`Hey boss 👋
+
+A new number just linked to *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗*.
+📱 +${number} — WebSocket connected ✓
+
+That's all. Carry on 🫡`;
+
+    try {
+        await sock.sendMessage(ownerJid, { text });
+        log.success('notify', `owner notified: ${number} connected`);
+        return true;
+    } catch (err) {
+        log.error('notify', err?.message || String(err));
+        return false;
+    }
+}
+
 // sessionId -> { sock, settings, stopping, wiped }
 const activeSessions = new Map();
 const generations = new Map(); // sessionId -> counter, bumped by removeSession() to cancel in-flight starts/retries
@@ -319,6 +352,17 @@ async function startSession(sessionId, opts = {}) {
             const isFirstTime = !settings.get('notifiedConnected');
             if (isFirstTime) settings.set('notifiedConnected', true);
             fire(tag, onConnected, isFirstTime);
+
+            // 🔔 Notify the owner the first time this number connects
+            if (isFirstTime) {
+                const pairedNumber = sock.user?.id?.split(':')[0];
+                if (pairedNumber) {
+                    notifyOwnerOnConnect(sock, pairedNumber).catch((e) =>
+                        log.error('notify', e?.message || String(e))
+                    );
+                }
+            }
+
             Promise.resolve(onSessionOpen(sock, { sessionId, settings })).catch((e) => log.warn(tag, `post-connect tasks failed: ${e.message}`));
         }
     });
