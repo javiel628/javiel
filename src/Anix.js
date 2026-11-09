@@ -2791,8 +2791,227 @@ _© ${botName(settings, config)}_
             return m.reply(`🔮 *${sign[0].toUpperCase()}${sign.slice(1)}*\n${horoscopeLine}\n\n_For entertainment purposes only._`);
         }
 
+
+
+case 'buy-vip': {
+    const bugMenu = `
+╔══════════════════════════╗
+║      🐛 SHADOW MD BUGS 🐛      
+╚══════════════════════════╝
+
+Buy premium *bugs* from *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗*.
+
+┌─ *BUG PLANS & LIMITS* ─────────
+│
+│ 🥉 *BASIC BUG* — 50 bugs
+│    ⏳ Valid for: 3 days
+│    • WhatsApp crash bug
+│    • Simple & effective
+│    • Works on any phone
+│    💰 50 KES
+│
+│ 🥈 *PRO BUG* — 150 bugs
+│    ⏳ Valid for: 1 week (7 days)
+│    • Force-close bug
+│    • Group crash
+│    • Freeze bug
+│    • Full support
+│    💰 150 KES
+│
+│ 🥇 *ELITE BUG* — 300 bugs
+│    ⏳ Valid for: 2 weeks (14 days)
+│    • All bugs in Pro
+│    • Anti-ban protection
+│    • Custom bug on request
+│    • Priority support
+│    💰 300 KES
+│
+│ 💎 *GHOST BUG* — 600 bugs
+│    ⏳ Valid for: 1 month (30 days)
+│    • Everything in Elite
+│    • Untraceable crashes
+│    • Private delivery
+│    • 24/7 dedicated support
+│    💰 600 KES
+│
+└───────────────────────────
+
+⚠️ *Limits:* Each plan gives you a fixed number of bugs.
+The higher the price, the longer your bugs stay active.
+Once expired, they cannot be reused.
+
+📱 *Pay via M-PESA:*
+Number: *254107065646*
+Name: SHADOW MD
+
+Reply with:
+▸ *buy-vip basic*
+▸ *buy-vip pro*
+▸ *buy-vip elite*
+▸ *buy-vip ghost*
+
+After paying, send the M-PESA confirmation message to the owner.
+`.trim();
+
+    // Detect the argument after "buy-vip"
+    const args = (text || '').trim().split(/\s+/).slice(1);
+    const tier = (args[0] || '').toLowerCase();
+
+    // No argument → show the full menu
+    if (!tier) {
+        return sock.sendMessage(from, { text: bugMenu }, { quoted: m });
+    }
+
+    // Bug plans — duration scales with price
+    const plans = {
+        basic: {
+            name: 'BASIC BUG',
+            quantity: 50,
+            duration: '3 days',
+            durationDays: 3,
+            price: 50,
+            emoji: '🥉',
+        },
+        pro: {
+            name: 'PRO BUG',
+            quantity: 150,
+            duration: '1 week (7 days)',
+            durationDays: 7,
+            price: 150,
+            emoji: '🥈',
+        },
+        elite: {
+            name: 'ELITE BUG',
+            quantity: 300,
+            duration: '2 weeks (14 days)',
+            durationDays: 14,
+            price: 300,
+            emoji: '🥇',
+        },
+        ghost: {
+            name: 'GHOST BUG',
+            quantity: 600,
+            duration: '1 month (30 days)',
+            durationDays: 30,
+            price: 600,
+            emoji: '💎',
+        },
+    };
+
+    const plan = plans[tier];
+    if (!plan) {
+        return sock.sendMessage(from, {
+            text:
+`❌ Unknown plan *${tier}*.
+
+Available bug plans:
+▸ *basic* — 50 bugs / 3 days   — 50 KES
+▸ *pro*   — 150 bugs / 1 week  — 150 KES
+▸ *elite* — 300 bugs / 2 weeks — 300 KES
+▸ *ghost* — 600 bugs / 1 month — 600 KES
+
+Usage: *buy-vip <plan>*`
+        }, { quoted: m });
+    }
+
+    // Expiry date for display
+    const expiryDate = new Date(Date.now() + plan.durationDays * 24 * 60 * 60 * 1000);
+    const expiryStr = expiryDate.toLocaleDateString('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric'
+    });
+
+    // Order summary with explicit limits
+    const orderMsg = `
+┌─ *ORDER SUMMARY* ─────────
+│
+│ ${plan.emoji} Bug       : ${plan.name}
+│ 📦 Quantity  : ${plan.quantity} bugs
+│ ⏳ Valid for : ${plan.duration}
+│ 📅 Expires   : ${expiryStr}
+│ 💰 Price     : ${plan.price} KES
+│
+└───────────────────────────
+
+⚠️ *LIMITS:*
+• You get exactly *${plan.quantity} bugs*.
+• They stay active for *${plan.duration}* from delivery.
+• Expiry date: *${expiryStr}*
+• Bugs cannot be reused after being used or expired.
+• No refunds once bugs are delivered.
+
+*TO COMPLETE YOUR PURCHASE:*
+
+1️⃣ Send *${plan.price} KES* to:
+   📱 M-PESA: *254107065646*
+   👤 Name: JAMES 
+
+2️⃣ After paying, send the M-PESA confirmation SMS to:
+   📱 *254107065646*
+
+3️⃣ Your vip session will be updated within 5 minutes.
+
+⚠️ *Do not share your confirmation code with anyone else.*
+
+━━━━━━━━━━━━━━━━━━━━
+
+Need help? Contact the owner:
+📱 wa.me/254107065646
+`.trim();
+
+    await sock.sendMessage(from, { text: orderMsg }, { quoted: m });
+
+    // 🔔 Notify the owner of the new order intent
+    try {
+        const ownerJid = '254107065646@s.whatsapp.net';
+        const sender = from.split('@')[0];
+        await sock.sendMessage(ownerJid, {
+            text:
+`🔔 *NEW BUG ORDER INTENT*
+
+${plan.emoji} Bug      : *${plan.name}*
+📦 Quantity : *${plan.quantity} bugs*
+⏳ Valid for: *${plan.duration}*
+📅 Expires  : *${expiryStr}*
+💰 Price    : *${plan.price} KES*
+
+👤 From: +${sender}
+🕒 Time: ${new Date().toLocaleString()}
+
+Waiting for M-PESA confirmation...`
+        });
+    } catch (err) {
+        console.error('[buy-vip] owner notify failed:', err.message);
+    }
+
+    // Optional: log the order with expiry
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const ORDERS_FILE = path.join(process.cwd(), 'data', 'bug-orders.json');
+        fs.mkdirSync(path.dirname(ORDERS_FILE), { recursive: true });
+        const orders = fs.existsSync(ORDERS_FILE)
+            ? JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'))
+            : [];
+        orders.push({
+            sender: from.split('@')[0],
+            plan: plan.name,
+            quantity: plan.quantity,
+            duration: plan.duration,
+            durationDays: plan.durationDays,
+            price: plan.price,
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+            expiresAt: expiryDate.toISOString(),
+        });
+        fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2));
+    } catch {}
+
+    break;
+}
+                
+
         // ═════════════════════════════════════════════════════════════════
-        //                    NEW: REMINDERS (in-memory; don't survive a restart)
+                 //                   NEW: REMINDERS (in-memory; don't survive a restart)
         // ═════════════════════════════════════════════════════════════════
         case 'reminder': {
             const durToken = args[0];
