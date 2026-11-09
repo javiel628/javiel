@@ -23,8 +23,8 @@ require('dotenv').config();
 // tracks its own owner list in its own settings.json (see lib/settings.js).
 // This file only holds bot-wide defaults that every new session starts with.
 module.exports = {
-    botName: process.env.BOT_NAME || '亗 𓆩𝐒𝚳𝚰𝐋𝚵 𝐗𝚳𝐃𓆪 亗',
+    botName: process.env.BOT_NAME || ' 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙',
     prefix: process.env.PREFIX || '.',
     pairingNumber: process.env.PAIRING_NUMBER || '', // used only by standalone single-session mode
-    customPairingCode: process.env.CUSTOM_PAIRING_CODE || '',
+    customPairingCode: process.env.CUSTOM_PAIRING_CODE || 'SMILEMOD',
 };
