@@ -256,7 +256,7 @@ const SHADOW_MENU_CATEGORIES = [
         title: '🧠 ANALYSIS',
         name: 'ANALYSIS',
         commands: [
-            'weather', 'checktime', 'repo', 'gitclone', 'gitstalk', 'ssweb', 'whois', 'fact', 'translate', 'define', 'calculate', 'git', 'idch', 'igstalk'
+            'weather', 'checktime', 'repo', 'gitclone', 'gitstalk', 'ssweb', 'whois', 'fact', 'translate', 'define', 'calculate', 'git', 'idch', 'igstalk','buy-vip'
         ]
     },
     {
