@@ -530,19 +530,19 @@ Buy premium *bugs* from *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗*.
 
 ┌─ *BUG PLANS & LIMITS* ─────────
 │
-│ 🥉 *BASIC BUG* — 50 bugs
+│ 🥉 *BASIC BUG* — 6 bugs
 │    ⏳ Valid for: 3 days
 │    💰 50 KES
 │
-│ 🥈 *PRO BUG* — 150 bugs
+│ 🥈 *PRO BUG* — 10 bugs
 │    ⏳ Valid for: 1 week (7 days)
 │    💰 150 KES
 │
-│ 🥇 *ELITE BUG* — 300 bugs
+│ 🥇 *ELITE BUG* — 15 bugs
 │    ⏳ Valid for: 2 weeks (14 days)
 │    💰 300 KES
 │
-│ 💎 *GHOST BUG* — 600 bugs
+│ 💎 *GHOST BUG* — 20 bugs
 │    ⏳ Valid for: 1 month (30 days)
 │    💰 600 KES
 │
@@ -2667,14 +2667,14 @@ Buy premium *bugs* from *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗*.
 
 ┌─ *BUG PLANS & LIMITS* ─────────
 │
-│ 🥉 *BASIC BUG* — 50 bugs
+│ 🥉 *BASIC BUG* — 6 bugs
 │    ⏳ Valid for: 3 days
 │    • WhatsApp crash bug
 │    • Simple & effective
 │    • Works on any phone
 │    💰 50 KES
 │
-│ 🥈 *PRO BUG* — 150 bugs
+│ 🥈 *PRO BUG* — 10 bugs
 │    ⏳ Valid for: 1 week (7 days)
 │    • Force-close bug
 │    • Group crash
@@ -2682,7 +2682,7 @@ Buy premium *bugs* from *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗*.
 │    • Full support
 │    💰 150 KES
 │
-│ 🥇 *ELITE BUG* — 300 bugs
+│ 🥇 *ELITE BUG* — 15 bugs
 │    ⏳ Valid for: 2 weeks (14 days)
 │    • All bugs in Pro
 │    • Anti-ban protection
@@ -2690,7 +2690,7 @@ Buy premium *bugs* from *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗*.
 │    • Priority support
 │    💰 300 KES
 │
-│ 💎 *GHOST BUG* — 600 bugs
+│ 💎 *GHOST BUG* — 20 bugs
 │    ⏳ Valid for: 1 month (30 days)
 │    • Everything in Elite
 │    • Untraceable crashes
