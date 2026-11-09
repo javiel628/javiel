@@ -39,7 +39,7 @@ function createSessionSettings(sessionId, defaultPrefix) {
     let data = {
         public: true,
         prefix: defaultPrefix,
-        menuImage: "https://files.catbox.moe/6s94uf.jpeg",
+        menuImage: "https://files.catbox.moe/xzkd25.png",
         fontStyle: null,
         autoStatusView: true,
         autoStatusLike: true,
