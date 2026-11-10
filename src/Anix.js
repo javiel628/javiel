@@ -61,7 +61,7 @@ const CHANNEL = {
 const CHANNEL_BUTTON_URL = 'https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B';
 const SUPPORT_URL = 'https://chat.whatsapp.com/';
 // ⚠️ Replace with the DIRECT image link (i.ibb.co/...), not the ibb.co page URL
-const DEFAULT_MENU_IMAGE = 'https://i.ibb.co/6ccZqSfT/menu.jpg';
+const DEFAULT_MENU_IMAGE = 'https://i.ibb.co/6ccZqSfT';
 const BOT_DISPLAY = '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃么';
 const BOT_PLAIN   = '么 SMILE PRIME MD 么';
 // ───────────────────────────────────────────
