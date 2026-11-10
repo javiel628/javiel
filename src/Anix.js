@@ -328,21 +328,31 @@ function buildMainMenuText(settings) {
         `*${i + 1}.* ${c.title}  _(${c.commands.length} commands)_`
     );
     return [
-        `么 *${BOT_DISPLAY.replace(/^么\s*/, '').replace(/\s*么$/, '')}* 么`,
-        '',
-        '⚡ *SYSTEM ONLINE*',
-        '━━━━━━━━━━━━━━━━━━',
-        `📢 *CHANNEL:* ${CHANNEL.link}`,
-        `👨‍💻 *DEV:* ${author}`,
-        `🔧 *PREFIX:* ${prefix || 'none'}`,
-        '',
-        `么 *SMILE PRIME MD* 么`,
-        '',
-        '📋 *Reply with a number to open that category:*',
-        ...lines,
-        '',
-        '*0* — close this menu',
-        `_Or just type a command, e.g. *${prefix || ''}ping*_`
+        `
+[
+    `𓆩 *${BOT_DISPLAY.replace(/^么\s*/, '').replace(/\s*么$/, '')}* 𓆪`,
+    '',
+    '╭━━━〔 ⚡ *SYSTEM ONLINE* 〕━━━╮',
+    `┃ 👨‍💻 *DEVELOPER:* ${author}`,
+    `┃ 🔧 *PREFIX:* ${prefix || 'none'}`,
+    '┃ 👑 *EDITION:* PRIME',
+    '╰━━━━━━━━━━━━━━━━━━━━╯',
+    '',
+    '       亗 *𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝐌𝐃* 亗',
+    '',
+    '╭━━━〔 📂 *COMMAND MENU* 〕━━━╮',
+    ...lines,
+    '╰━━━━━━━━━━━━━━━━━━━━╯',
+    '',
+    '╭━━━〔 💡 *HOW TO USE* 〕━━━╮',
+    '┃ ✦ Reply with a number to',
+    '┃   open a command category.',
+    '┃ ✦ Type *0* to close menu.',
+    `┃ ✦ Example: *${prefix || ''}ping*`,
+    '╰━━━━━━━━━━━━━━━━━━━━╯',
+    '',
+    '        𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙'
+`
     ].join('\n');
 }
 
