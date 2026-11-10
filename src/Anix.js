@@ -322,39 +322,54 @@ async function loadMenuImage(settings) {
     return null;
 }
 
+
 function buildMainMenuText(settings) {
     const prefix = settings.get('prefix', config.prefix);
-    const lines = SHADOW_MENU_CATEGORIES.map((c, i) =>
-        `*${i + 1}.* ${c.title}  _(${c.commands.length} commands)_`
-    );
-    return [        
-    
-[
-    `𓆩 *${BOT_DISPLAY.replace(/^么\s*/, '').replace(/\s*么$/, '')}* 𓆪`,
-    '',
-    '╭━━━〔 ⚡ *SYSTEM ONLINE* 〕━━━╮',
-    `┃ 👨‍💻 *DEVELOPER:* ${author}`,
-    `┃ 🔧 *PREFIX:* ${prefix || 'none'}`,
-    '┃ 👑 *EDITION:* PRIME',
-    '╰━━━━━━━━━━━━━━━━━━━━╯',
-    '',
-    '       亗 *𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝐌𝐃* 亗',
-    '',
-    '╭━━━〔 📂 *COMMAND MENU* 〕━━━╮',
-    ...lines,
-    '╰━━━━━━━━━━━━━━━━━━━━╯',
-    '',
-    '╭━━━〔 💡 *HOW TO USE* 〕━━━╮',
-    '┃ ✦ Reply with a number to',
-    '┃   open a command category.',
-    '┃ ✦ Type *0* to close menu.',
-    `┃ ✦ Example: *${prefix || ''}ping*`,
-    '╰━━━━━━━━━━━━━━━━━━━━╯',
-    '',
-    '       𓆩 *𝐒𝚳𝚰𝐋𝚵 𝐌𝚯𝐃𝐙* 𓆪'
-].join('\n')
 
+    const cleanBotName = BOT_DISPLAY
+        .replace(/^么\s*/, '')
+        .replace(/\s*么$/, '');
+
+    const lines = SHADOW_MENU_CATEGORIES.map((c, i) =>
+        `┃ ✧ ${c.title}  ❯  _${c.commands.length} Commands_`
+    );
+
+    return [
+        `       𓆩 *${cleanBotName}* 𓆪`,
+        '',
+        '╭━━━〔 ⚡ *SYSTEM STATUS* 〕━━━╮',
+        `┃ ◈ 👨‍💻 Developer : ${author}`,
+        `┃ ◈ 🔧 Prefix    : ${prefix || 'None'}`,
+        '┃ ◈ 👑 Edition   : PRIME',
+        '┃ ◈ 🟢 Status    : ONLINE',
+        '╰━━━━━━━━━━━━━━━━━━━━━━╯',
+        '',
+        '       亗 *𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝐌𝐃* 亗',
+        '',
+        '╭━━━〔 📂 *COMMAND CATEGORIES* 〕━━━╮',
+        ...lines,
+        '╰━━━━━━━━━━━━━━━━━━━━━━━━━━╯',
+        '',
+        '╭━━━〔 💡 *HOW TO USE* 〕━━━╮',
+        '┃',
+        '┃  ✧ Reply with a category number',
+        '┃    to explore its commands.',
+        '┃',
+        '┃  ✧ Type *0* to close the menu.',
+        '┃',
+        `┃  ✧ Example: *${prefix || ''}ping*`,
+        '┃',
+        '╰━━━━━━━━━━━━━━━━━━━━━━╯',
+        '',
+        '     𓆩 *𝐒𝚳𝚰𝐋𝚵 𝐌𝚯𝐃𝐙* 𓆪'
+    ].join('\n');
 }
+
+
+
+
+
+
 
 function buildCategoryText(category, prefix) {
     const cmds = category.commands;
