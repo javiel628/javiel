@@ -1,9 +1,9 @@
 # SHADOW MD WhatsApp configuration
-BOT_NAME=亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗
+BOT_NAME=么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么
 PREFIX=.
 # Optional 8-character custom pairing code (letters/numbers); leave blank for a WhatsApp-generated code
 CUSTOM_PAIRING_CODE=SMILEMOD
-START_IMAGE_URL=https://files.catbox.moe/xzkd25.png
+START_IMAGE_URL=https://ibb.co/6ccZqSfT
 
 # ── 亗 SHADOW LINK 亗 pairing server ──
 # Port the host gives you (most hosts set this automatically)
