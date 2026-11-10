@@ -2864,6 +2864,601 @@ Waiting for M-PESA confirmation...`
             return m.reply(`✅ Reminder #${reminderId} set for ${durToken} from now.`);
         }
 
+
+case 'dns': {
+    const domain = (args[0] || '').trim();
+    if (!domain) return m.reply(`Usage: ${P}dns <domain>`);
+    try {
+        const dnsPromises = require('dns').promises;
+        let aRecords = [], mxRecords = [];
+        try { aRecords = await dnsPromises.resolve4(domain); } catch {}
+        try { mxRecords = await dnsPromises.resolveMx(domain); } catch {}
+        if (!aRecords.length && !mxRecords.length) return m.reply('❌ No DNS records found for that domain.');
+        let out = `🌐 *DNS lookup for ${domain}*\n\n`;
+        if (aRecords.length) out += `A: ${aRecords.join(', ')}\n`;
+        if (mxRecords.length) out += `MX: ${mxRecords.map((r) => r.exchange).join(', ')}\n`;
+        return m.reply(out.trim());
+    } catch (err) {
+        return m.reply(`❌ DNS lookup failed: ${err.message}`);
+    }
+}
+
+ // ───────────────────────── FUN ─────────────────────────
+case '8ball': {
+    const q = args.join(' ').trim();
+    if (!q) return m.reply(`Usage: ${P}8ball <question>`);
+    const ans = EIGHTBALL_ANSWERS[Math.floor(Math.random() * EIGHTBALL_ANSWERS.length)];
+    return m.reply(`🎱 *${q}*\n\n${ans}`);
+}
+
+case 'truth': {
+    const t = TRUTH_PROMPTS[Math.floor(Math.random() * TRUTH_PROMPTS.length)];
+    return m.reply(`😳 *Truth:*\n${t}`);
+}
+
+case 'dare': {
+    const d = DARE_PROMPTS[Math.floor(Math.random() * DARE_PROMPTS.length)];
+    return m.reply(`🔥 *Dare:*\n${d}`);
+}
+
+case 'rps': {
+    const choice = (args[0] || '').toLowerCase();
+    const valid = ['rock', 'paper', 'scissors'];
+    if (!valid.includes(choice)) return m.reply(`Usage: ${P}rps <rock|paper|scissors>`);
+    const bot = valid[Math.floor(Math.random() * 3)];
+    let result;
+    if (bot === choice) result = "It's a tie!";
+    else if (
+        (choice === 'rock' && bot === 'scissors') ||
+        (choice === 'paper' && bot === 'rock') ||
+        (choice === 'scissors' && bot === 'paper')
+    ) result = 'You win! 🎉';
+    else result = 'I win! 🤖';
+    return m.reply(`✊✋✌️ You: *${choice}*\nMe: *${bot}*\n\n${result}`);
+}
+
+case 'quote': {
+    try {
+        const data = await apiGet('/quotes/random').catch(() => null);
+        const text = data?.result?.quote || data?.result?.text;
+        const by = data?.result?.author;
+        if (text) return m.reply(`💬 "${text}"${by ? `\n— ${by}` : ''}`);
+    } catch {}
+    const fallback = [
+        '"The only way to do great work is to love what you do." — Steve Jobs',
+        '"Life is what happens when you\'re busy making other plans." — John Lennon',
+        '"In the middle of difficulty lies opportunity." — Albert Einstein',
+    ];
+    return m.reply(`💬 ${fallback[Math.floor(Math.random() * fallback.length)]}`);
+}
+
+case 'meme': {
+    try {
+        const res = await fetch('https://meme-api.com/gimme');
+        if (!res.ok) return m.reply('❌ Failed to fetch meme.');
+        const json = await res.json();
+        if (!json.url) return m.reply('❌ No meme found.');
+        return m.send({ image: { url: json.url }, caption: json.title || '😂' });
+    } catch (err) {
+        log.error('meme', err.message);
+        return m.reply('❌ Failed to fetch meme.');
+    }
+}
+
+case 'compliment': {
+    const target = resolveTarget(m, args);
+    const c = COMPLIMENTS[Math.floor(Math.random() * COMPLIMENTS.length)];
+    if (target) return m.reply(`💖 @${numOf(target)}, ${c}`, { mentions: [target] });
+    return m.reply(`💖 ${c}`);
+}
+
+case 'roast': {
+    const target = resolveTarget(m, args);
+    const r = ROASTS[Math.floor(Math.random() * ROASTS.length)];
+    if (target) return m.reply(`🔥 @${numOf(target)}, ${r}`, { mentions: [target] });
+    return m.reply(`🔥 ${r}`);
+}
+
+case 'wouldyourather': {
+    const w = WYR_PROMPTS[Math.floor(Math.random() * WYR_PROMPTS.length)];
+    return m.reply(`🤔 *Would you rather*${w}`);
+}
+
+case 'horoscope': {
+    const sign = (args[0] || '').toLowerCase();
+    if (!ZODIAC_SIGNS.includes(sign)) return m.reply(`Usage: ${P}horoscope <sign>\nSigns: ${ZODIAC_SIGNS.join(', ')}`);
+    const line = HOROSCOPE_LINES[Math.floor(Math.random() * HOROSCOPE_LINES.length)];
+    return m.reply(`🔮 *${sign.toUpperCase()} Horoscope*\n\n${line}`);
+}
+
+// ───────────────────────── UTILITY ─────────────────────────
+case 'base64': {
+    const sub = (args[0] || '').toLowerCase();
+    const text = args.slice(1).join(' ');
+    if (!['encode', 'decode'].includes(sub) || !text) return m.reply(`Usage: ${P}base64 encode <text>\n${P}base64 decode <text>`);
+    try {
+        const out = sub === 'encode'
+            ? Buffer.from(text, 'utf8').toString('base64')
+            : Buffer.from(text, 'base64').toString('utf8');
+        return m.reply(`🔤 *${sub.toUpperCase()}D:*\n${out}`);
+    } catch {
+        return m.reply('❌ Invalid input for decoding.');
+    }
+}
+
+case 'hash': {
+    const text = args.join(' ');
+    if (!text) return m.reply(`Usage: ${P}hash <text>`);
+    const crypto = require('crypto');
+    const md5 = crypto.createHash('md5').update(text).digest('hex');
+    const sha1 = crypto.createHash('sha1').update(text).digest('hex');
+    const sha256 = crypto.createHash('sha256').update(text).digest('hex');
+    return m.reply(`🔑 *Hashes*\n\nMD5: ${md5}\nSHA1: ${sha1}\nSHA256: ${sha256}`);
+}
+
+case 'morsecode': {
+    const sub = (args[0] || '').toLowerCase();
+    const text = args.slice(1).join(' ');
+    if (!['encode', 'decode'].includes(sub) || !text) return m.reply(`Usage: ${P}morsecode encode <text>\n${P}morsecode decode <.-- --- .-. -..>`);
+    if (sub === 'encode') {
+        const out = text.toUpperCase().split('').map((c) => MORSE_MAP[c] || (c === ' ' ? '/' : c)).join(' ');
+        return m.reply(`📡 *Morse:*\n${out}`);
+    }
+    const out = text.split(' ').map((c) => (c === '/' ? ' ' : MORSE_REV[c] || c)).join('');
+    return m.reply(`🔤 *Decoded:*\n${out}`);
+}
+
+case 'wordcount': {
+    const text = args.join(' ');
+    if (!text) return m.reply(`Usage: ${P}wordcount <text>`);
+    const words = text.trim().split(/\s+/).filter(Boolean).length;
+    const chars = text.length;
+    const charsNoSpace = text.replace(/\s/g, '').length;
+    return m.reply(`📝 *Word Count*\n\nWords: ${words}\nCharacters: ${chars}\nCharacters (no spaces): ${charsNoSpace}`);
+}
+
+case 'dns': {
+    const domain = (args[0] || '').trim();
+    if (!domain) return m.reply(`Usage: ${P}dns <domain>`);
+    try {
+        const dnsPromises = require('dns').promises;
+        const [a, mx].map2 = null;
+        let aRecords = [], mxRecords = [];
+        try { aRecords = await dnsPromises.resolve4(domain); } catch {}
+        try { mxRecords = await dnsPromises.resolveMx(domain); } catch {}
+        if (!aRecords.length && !mxRecords.length) return m.reply('❌ No DNS records found for that domain.');
+        let out = `🌐 *DNS lookup for ${domain}*\n\n`;
+        if (aRecords.length) out += `A: ${aRecords.join(', ')}\n`;
+        if (mxRecords.length) out += `MX: ${mxRecords.map((r) => r.exchange).join(', ')}\n`;
+        return m.reply(out.trim());
+    } catch (err) {
+        return m.reply(`❌ DNS lookup failed: ${err.message}`);
+    }
+}
+
+case 'shorturl': {
+    const url = (args[0] || '').trim();
+    if (!url || !/^https?:\/\//i.test(url)) return m.reply(`Usage: ${P}shorturl <url>`);
+    try {
+        const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`);
+        const short = await res.text();
+        if (!short.startsWith('http')) return m.reply('❌ Failed to shorten the URL.');
+        return m.reply(`🔗 *Shortened:*\n${short}`);
+    } catch (err) {
+        return m.reply(`❌ Failed to shorten the URL: ${err.message}`);
+    }
+}
+
+case 'currency': {
+    // Usage: currency 100 USD KES
+    const amount = parseFloat(args[0]);
+    const from = (args[1] || '').toUpperCase();
+    const to = (args[2] || '').toUpperCase();
+    if (!amount || !from || !to) return m.reply(`Usage: ${P}currency <amount> <from> <to>\nExample: ${P}currency 100 USD KES`);
+    try {
+        const res = await fetch(`https://api.exchangerate-api.com/v4/latest/${from}`);
+        if (!res.ok) return m.reply('❌ Could not fetch exchange rates.');
+        const json = await res.json();
+        const rate = json.rates?.[to];
+        if (!rate) return m.reply('❌ Unknown currency code.');
+        const converted = (amount * rate).toFixed(2);
+        return m.reply(`💱 ${amount} ${from} = *${converted} ${to}*`);
+    } catch (err) {
+        return m.reply(`❌ Currency conversion failed: ${err.message}`);
+    }
+}
+
+case 'ipinfo': {
+    const ip = (args[0] || '').trim();
+    if (!ip) return m.reply(`Usage: ${P}ipinfo <ip address>`);
+    try {
+        const res = await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}`);
+        const json = await res.json();
+        if (json.status !== 'success') return m.reply('❌ Could not find info for that IP.');
+        return m.reply(
+            `🌍 *IP Info: ${ip}*\n\n` +
+            `Country: ${json.country}\nRegion: ${json.regionName}\nCity: ${json.city}\n` +
+            `ISP: ${json.isp}\nTimezone: ${json.timezone}`
+        );
+    } catch (err) {
+        return m.reply(`❌ IP lookup failed: ${err.message}`);
+    }
+}
+
+case 'synonym': {
+    const word = (args[0] || '').trim();
+    if (!word) return m.reply(`Usage: ${P}synonym <word>`);
+    try {
+        const res = await fetch(`https://api.datamuse.com/words?rel_syn=${encodeURIComponent(word)}&max=10`);
+        const json = await res.json();
+        if (!json.length) return m.reply('❌ No synonyms found.');
+        return m.reply(`📚 *Synonyms for "${word}":*\n${json.map((w) => w.word).join(', ')}`);
+    } catch (err) {
+        return m.reply(`❌ Synonym lookup failed: ${err.message}`);
+    }
+}
+
+case 'clearcache': {
+    if (!owner) return m.reply('⛔ Owner only.');
+    try {
+        if (global.gc) global.gc();
+        return m.reply('✅ Cache cleared (garbage collection triggered).');
+    } catch {
+        return m.reply('✅ Done (run node with --expose-gc for manual GC).');
+    }
+}
+
+case 'botspeed': {
+    const start = Date.now();
+    await m.reply('🏓 Measuring...');
+    const ms = Date.now() - start;
+    return m.reply(`⚡ *Bot Speed:* ${ms}ms`);
+}
+
+case 'changelog':
+    return m.reply(`📋 *Changelog*\n\n${CHANGELOG.join('\n')}`);
+
+case 'health': {
+    const mem = process.memoryUsage();
+    const mb = (n) => (n / 1024 / 1024).toFixed(1) + ' MB';
+    return m.reply(
+        `❤️ *Health Check*\n\n` +
+        `Status: ✅ Online\n` +
+        `Uptime: ${formatUptime(process.uptime())}\n` +
+        `RSS: ${mb(mem.rss)}\n` +
+        `Heap: ${mb(mem.heapUsed)} / ${mb(mem.heapTotal)}\n` +
+        `Node: ${process.version}`
+    );
+}
+
+case 'backupsettings': {
+    if (!owner) return m.reply('⛔ Owner only.');
+    try {
+        const backup = {};
+        for (const key of BACKUP_KEYS) backup[key] = settings.get(key, null);
+        const json = JSON.stringify(backup, null, 2);
+        return m.send({ document: Buffer.from(json), fileName: 'settings-backup.json', mimetype: 'application/json', caption: '✅ Settings backup' });
+    } catch (err) {
+        return m.reply(`❌ Backup failed: ${err.message}`);
+    }
+}
+
+case 'restoresettings': {
+    if (!owner) return m.reply('⛔ Owner only.');
+    const quoted = await getQuotedMessage(m);
+    const docMsg = quoted?.message?.documentMessage;
+    if (!docMsg) return m.reply(`Reply to a settings-backup.json file with *${P}restoresettings*.`);
+    try {
+        const buffer = await downloadMediaMessage({ message: { documentMessage: docMsg }, key: quoted.key }, 'buffer', {});
+        const data = JSON.parse(buffer.toString('utf8'));
+        let restored = 0;
+        for (const key of BACKUP_KEYS) {
+            if (key in data) { settings.set(key, data[key]); restored++; }
+        }
+        return m.reply(`✅ Restored ${restored} setting(s) from backup.`);
+    } catch (err) {
+        return m.reply(`❌ Restore failed: ${err.message}`);
+    }
+}               
+
+// ───────────────────────── SYSTEM (remaining) ─────────────────────────
+case 'info': {
+    return m.reply(
+        `ℹ️ *${botName(settings, config)} — Info*\n\n` +
+        `👨‍💻 Developer: ${author}\n` +
+        `📦 Prefix: ${settings.get('prefix', config.prefix) || 'none'}\n` +
+        `⏱️ Uptime: ${formatUptime(process.uptime())}\n` +
+        `🧩 Node: ${process.version}\n` +
+        `📢 Channel: ${CHANNEL.link}\n\n` +
+        `Type *${settings.get('prefix', config.prefix)}menu* to see all commands.`
+    );
+}
+
+case 'speed': {
+    const start = Date.now();
+    await m.reply('🏓 Testing speed...');
+    const ms = Date.now() - start;
+    return m.reply(`⚡ *Response time:* ${ms}ms`);
+}
+
+// ───────────────────────── ANALYSIS (remaining) ─────────────────────────
+case 'checktime': {
+    const place = args.join(' ').trim();
+    if (!place) return m.reply(`Usage: ${P}checktime <city/country>`);
+    try {
+        const res = await fetch(`https://worldtimeapi.org/api/timezone`);
+        // worldtimeapi needs an exact zone (e.g. Africa/Nairobi); try a direct guess first
+        const guess = place.replace(/\s+/g, '_');
+        let tzRes = await fetch(`https://worldtimeapi.org/api/timezone/${encodeURIComponent(guess)}`);
+        if (!tzRes.ok) {
+            // fall back: search common zone list for a matching city name
+            const zonesRes = await fetch('https://worldtimeapi.org/api/timezone');
+            const zones = await zonesRes.json();
+            const match = zones.find((z) => z.toLowerCase().includes(place.toLowerCase().replace(/\s+/g, '_')));
+            if (!match) return m.reply('❌ Could not find a timezone for that location. Try a format like "Africa/Nairobi".');
+            tzRes = await fetch(`https://worldtimeapi.org/api/timezone/${match}`);
+        }
+        const json = await tzRes.json();
+        const dt = new Date(json.datetime);
+        return m.reply(`🕒 *Time in ${place}*\n\n${dt.toLocaleString('en-US', { timeZone: json.timezone })}\n🌍 Timezone: ${json.timezone}\n📴 UTC offset: ${json.utc_offset}`);
+    } catch (err) {
+        return m.reply(`❌ Could not fetch the time: ${err.message}`);
+    }
+}
+
+case 'repo': {
+    return m.reply(
+        `📦 *Bot Repository*\n\n` +
+        `👨‍💻 Developer: ${author}\n` +
+        `📢 Channel: ${CHANNEL.link}\n\n` +
+        `Contact the owner for source/repo access.`
+    );
+}
+
+case 'gitstalk': {
+    const username = args[0];
+    if (!username) return m.reply(`Usage: ${P}gitstalk <github username>`);
+    try {
+        const res = await fetch(`https://api.github.com/users/${encodeURIComponent(username)}`);
+        if (!res.ok) return m.reply('❌ GitHub user not found.');
+        const u = await res.json();
+        const cap =
+            `🐙 *GitHub: ${u.login}*\n\n` +
+            `Name: ${u.name || '-'}\n` +
+            `Bio: ${u.bio || '-'}\n` +
+            `Followers: ${u.followers}\n` +
+            `Following: ${u.following}\n` +
+            `Public repos: ${u.public_repos}\n` +
+            `Created: ${new Date(u.created_at).toLocaleDateString()}\n` +
+            `🔗 ${u.html_url}`;
+        if (u.avatar_url) return m.send({ image: { url: u.avatar_url }, caption: cap });
+        return m.reply(cap);
+    } catch (err) {
+        log.error('gitstalk', err.message);
+        return m.reply('❌ Error fetching GitHub profile.');
+    }
+}
+
+case 'ssweb': {
+    const url = args[0];
+    if (!url || !/^https?:\/\//i.test(url)) return m.reply(`Usage: ${P}ssweb <url>`);
+    try {
+        await m.reply('📸 Capturing screenshot...');
+        const shotUrl = `https://api.microlink.io/?url=${encodeURIComponent(url)}&screenshot=true&meta=false&embed=screenshot.url`;
+        const res = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}&screenshot=true&meta=false`);
+        const json = await res.json();
+        const imgUrl = json?.data?.screenshot?.url;
+        if (!imgUrl) return m.reply('❌ Failed to capture screenshot.');
+        return m.send({ image: { url: imgUrl }, caption: `📸 Screenshot of ${url}` });
+    } catch (err) {
+        log.error('ssweb', err.message);
+        return m.reply('❌ Screenshot failed.');
+    }
+}
+
+case 'whois': {
+    const domain = (args[0] || '').trim();
+    if (!domain) return m.reply(`Usage: ${P}whois <domain>`);
+    try {
+        const res = await apiGet(`/tools/whois?domain=${encodeURIComponent(domain)}`).catch(() => null);
+        const r = res?.result;
+        if (!r) return m.reply('❌ WHOIS lookup failed or not supported for this domain.');
+        return m.reply(
+            `🔍 *WHOIS: ${domain}*\n\n` +
+            `Registrar: ${r.registrar || '-'}\n` +
+            `Created: ${r.creation_date || '-'}\n` +
+            `Expires: ${r.expiration_date || '-'}\n` +
+            `Name servers: ${(r.name_servers || []).join(', ') || '-'}`
+        );
+    } catch (err) {
+        return m.reply(`❌ WHOIS lookup failed: ${err.message}`);
+    }
+}
+
+case 'fact': {
+    try {
+        const res = await fetch('https://uselessfacts.jsph.pl/api/v2/facts/random?language=en');
+        const json = await res.json();
+        return m.reply(`🧠 *Random Fact*\n\n${json.text}`);
+    } catch (err) {
+        return m.reply('❌ Could not fetch a fact right now.');
+    }
+}
+
+case 'define': {
+    const word = args.join(' ').trim();
+    if (!word) return m.reply(`Usage: ${P}define <word>`);
+    try {
+        const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+        if (!res.ok) return m.reply('❌ No definition found.');
+        const json = await res.json();
+        const entry = json[0];
+        const meaning = entry.meanings?.[0];
+        const def = meaning?.definitions?.[0];
+        if (!def) return m.reply('❌ No definition found.');
+        let out = `📖 *${entry.word}* (${meaning.partOfSpeech})\n\n${def.definition}`;
+        if (def.example) out += `\n\n_Example: "${def.example}"_`;
+        return m.reply(out);
+    } catch (err) {
+        return m.reply('❌ Definition lookup failed.');
+    }
+}
+
+// ───────────────────────── MEDIA (remaining) ─────────────────────────
+case 'song': {
+    const query = args.join(' ');
+    if (!query) return m.reply(`Usage: ${P}song <title>`);
+    try {
+        await m.reply('⏳ Searching...');
+        const data = await apiGet(`/search/ytplayv2?q=${encodeURIComponent(query)}`);
+        if (!data.status) return m.reply('Song not found.');
+        const res = data.result;
+        return m.send({ audio: { url: res.audio.url }, mimetype: 'audio/mpeg' });
+    } catch (err) {
+        log.error('song', err.message);
+        return m.reply('❌ Failed to fetch the song.');
+    }
+}
+
+case 'igdl': {
+    const url = args[0];
+    if (!url || !url.includes('instagram.com')) return m.reply(`Usage: ${P}igdl <instagram link>`);
+    try {
+        await m.reply('⏳ Fetching...');
+        const data = await apiGet(`/download/igdl?url=${encodeURIComponent(url)}`);
+        if (!data?.status || !data?.result?.length) return m.reply('❌ Failed to fetch media.');
+        for (const item of data.result.slice(0, 10)) {
+            const isVideo = item.url?.includes('.mp4') || item.type === 'video';
+            await m.send(isVideo ? { video: { url: item.url } } : { image: { url: item.url } });
+        }
+        return;
+    } catch (err) {
+        log.error('igdl', err.message);
+        return m.reply('❌ Instagram download failed.');
+    }
+}
+
+case 'fb': {
+    const url = args[0];
+    if (!url || !url.includes('facebook.com')) return m.reply(`Usage: ${P}fb <facebook video link>`);
+    try {
+        await m.reply('⏳ Fetching...');
+        const data = await apiGet(`/download/fbdl?url=${encodeURIComponent(url)}`);
+        const videoUrl = data?.result?.hd || data?.result?.sd || data?.result?.url;
+        if (!videoUrl) return m.reply('❌ Failed to fetch video.');
+        return m.send({ video: { url: videoUrl }, caption: `📘 *Facebook Video*\n\n亗 Downloaded by: ${botName(settings, config)}` });
+    } catch (err) {
+        log.error('fb', err.message);
+        return m.reply('❌ Facebook download failed.');
+    }
+}
+
+case 'video': {
+    const query = args.join(' ');
+    if (!query) return m.reply(`Usage: ${P}video <title or url>`);
+    try {
+        await m.reply('⏳ Searching...');
+        const data = await apiGet(`/search/ytplayv2?q=${encodeURIComponent(query)}&type=video`).catch(() =>
+            apiGet(`/download/ytmp4?url=${encodeURIComponent(query)}`)
+        );
+        const res = data?.result;
+        const videoUrl = res?.video?.url || res?.url;
+        if (!videoUrl) return m.reply('❌ Video not found.');
+        return m.send({ video: { url: videoUrl }, caption: `🎬 ${res.title || query}` });
+    } catch (err) {
+        log.error('video', err.message);
+        return m.reply('❌ Failed to fetch video.');
+    }
+}
+
+case 'ytmp3': {
+    const url = args[0];
+    if (!url || !/youtu\.?be/.test(url)) return m.reply(`Usage: ${P}ytmp3 <youtube link>`);
+    try {
+        await m.reply('⏳ Converting to MP3...');
+        const data = await apiGet(`/download/ytmp3?url=${encodeURIComponent(url)}`);
+        const audioUrl = data?.result?.url || data?.result?.audio;
+        if (!audioUrl) return m.reply('❌ Conversion failed.');
+        return m.send({ audio: { url: audioUrl }, mimetype: 'audio/mpeg', caption: data?.result?.title || '' });
+    } catch (err) {
+        log.error('ytmp3', err.message);
+        return m.reply('❌ YouTube to MP3 failed.');
+    }
+}
+
+case 'ytmp4': {
+    const url = args[0];
+    if (!url || !/youtu\.?be/.test(url)) return m.reply(`Usage: ${P}ytmp4 <youtube link>`);
+    try {
+        await m.reply('⏳ Fetching video...');
+        const data = await apiGet(`/download/ytmp4?url=${encodeURIComponent(url)}`);
+        const videoUrl = data?.result?.url || data?.result?.video;
+        if (!videoUrl) return m.reply('❌ Download failed.');
+        return m.send({ video: { url: videoUrl }, caption: data?.result?.title || '' });
+    } catch (err) {
+        log.error('ytmp4', err.message);
+        return m.reply('❌ YouTube video download failed.');
+    }
+}
+
+case 'gif': {
+    const query = args.join(' ');
+    if (!query) return m.reply(`Usage: ${P}gif <search term>`);
+    try {
+        const res = await fetch(`https://api.tenor.com/v1/search?q=${encodeURIComponent(query)}&limit=1&key=LIVDSRZULELA`);
+        const json = await res.json();
+        const gifUrl = json?.results?.[0]?.media?.[0]?.gif?.url;
+        if (!gifUrl) return m.reply('❌ No GIF found.');
+        return m.send({ video: { url: gifUrl, gifPlayback: true } });
+    } catch (err) {
+        log.error('gif', err.message);
+        return m.reply('❌ GIF search failed.');
+    }
+}
+
+// ───────────────────────── BASIC (remaining) ─────────────────────────
+case 'gcinfo': {
+    if (!m.isGroup) return m.reply('⛔ This command works in groups only.');
+    try {
+        const meta = await sock.groupMetadata(m.from);
+        const admins = meta.participants.filter((p) => p.admin).map((p) => `wa.me/${numOf(p.id)}`);
+        const created = meta.creation ? new Date(meta.creation * 1000).toLocaleDateString() : 'unknown';
+        return m.reply(
+            `ℹ️ *${meta.subject}*\n\n` +
+            `🆔 ${meta.id}\n` +
+            `👥 Members: ${meta.participants.length}\n` +
+            `👑 Admins: ${admins.length}\n` +
+            `📅 Created: ${created}\n` +
+            `📝 Description: ${meta.desc || 'None'}`
+        );
+    } catch (err) {
+        return m.reply(`❌ Could not read group info: ${err.message}`);
+    }
+}
+
+case 'creator': {
+    return m.reply(
+        `👨‍💻 *Bot Creator*\n\n` +
+        `Name: ${author}\n` +
+        `Bot: ${botName(settings, config)}\n` +
+        `📢 Channel: ${CHANNEL.link}`
+    );
+}
+
+case 'support': {
+    return m.reply(
+        `🆘 *Support*\n\n` +
+        `Need help? Join our support chat:\n${SUPPORT_URL}\n\n` +
+        `Or use *${settings.get('prefix', config.prefix)}report <message>* to message the owner directly.`
+    );
+}                
+
+
+
+
+
+                
+
         case 'remindlist': {
             const mine = [...activeReminders.entries()].filter(([, r]) => r.jid === m.from && r.sender === m.sender);
             if (!mine.length) return m.reply('You have no active reminders in this chat.');
