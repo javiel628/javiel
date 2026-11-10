@@ -50,12 +50,10 @@ async function notifyOwnerOnConnect(sock, number) {
         : `${OWNER_NUMBER}@s.whatsapp.net`;
 
     const text =
-`Hey boss 👋
+`Hello  𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 👋
 
-A new number just linked to *亗 𝐒𝐇𝐀𝐃𝐎𝐖 𝐌𝐃 亗*.
-📱 +${number} — WebSocket connected ✓
-
-That's all. Carry on 🫡`;
+A new number just linked to *么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 么*.
+📱 +${number} — WebSocket connected ✓`;
 
     try {
         await sock.sendMessage(ownerJid, { text });
