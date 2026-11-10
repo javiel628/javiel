@@ -327,8 +327,8 @@ function buildMainMenuText(settings) {
     const lines = SHADOW_MENU_CATEGORIES.map((c, i) =>
         `*${i + 1}.* ${c.title}  _(${c.commands.length} commands)_`
     );
-    return [
-        `
+    return [        
+    
 [
     `𓆩 *${BOT_DISPLAY.replace(/^么\s*/, '').replace(/\s*么$/, '')}* 𓆪`,
     '',
@@ -351,9 +351,9 @@ function buildMainMenuText(settings) {
     `┃ ✦ Example: *${prefix || ''}ping*`,
     '╰━━━━━━━━━━━━━━━━━━━━╯',
     '',
-    '        𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙'
-`
-    ].join('\n');
+    '       𓆩 *𝐒𝚳𝚰𝐋𝚵 𝐌𝚯𝐃𝐙* 𓆪'
+].join('\n')
+
 }
 
 function buildCategoryText(category, prefix) {
