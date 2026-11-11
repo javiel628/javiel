@@ -279,7 +279,7 @@ const SHADOW_MENU_CATEGORIES = [
         title: '🛠️ DEVELOPER',
         name: 'DEVELOPER',
         commands: [
-            'eval', 'exec', 'restart', 'broadcast', 'join', 'leave', 'fixerror', 'addsudo', 'delsudo', 'listsudo'
+            'eval', 'exec', 'restart', 'broadcast', 'join', 'leave', 'fixerror', 'addsudo', 'delsudo', 'listsudo','update'
         ]
     },
     {
@@ -1456,6 +1456,58 @@ async function handleCommand(m, { args, sock, session }) {
             await m.reply('♻️ Restarting...');
             process.exit(0);
         }
+
+
+case 'update': {
+    if (!owner) return m.reply('⛔ Owner only.');
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execAsync = util.promisify(exec);
+    const repo   = process.env.UPDATE_REPO   || 'https://github.com/javiel628/javiel.git';
+    const branch = process.env.UPDATE_BRANCH || 'main';
+
+    await m.reply('🔧 *SMILE PRIME MD · UPDATE*\n\n> Fetching latest changes…');
+
+    try {
+        await execAsync('git stash push -u -m "auto-stash-before-update" || true', { cwd: process.cwd() });
+        await execAsync(`git remote add upstream ${repo} 2>/dev/null || true`, { cwd: process.cwd() });
+        await execAsync(`git fetch upstream ${branch}`, { cwd: process.cwd() });
+
+        const pull = await execAsync(`git merge upstream/${branch} --no-edit`, { cwd: process.cwd() });
+        const changed = !/Already up to date/i.test(pull.stdout);
+
+        if (!changed) {
+            return m.reply('✅ *Already up to date.*\nNo new commits in the repo.');
+        }
+
+        await m.reply('📦 *Changes pulled.* Installing dependencies…');
+        await execAsync('npm install --no-audit --no-fund', { cwd: process.cwd(), timeout: 120000 });
+
+        const log = await execAsync('git log -1 --pretty=format:"%h · %s (%an)"', { cwd: process.cwd() });
+
+        await m.reply(
+            `✅ *UPDATE COMPLETE*\n\n` +
+            `> *Repo:* ${repo}\n` +
+            `> *Branch:* ${branch}\n` +
+            `> *Commit:* ${log.stdout}\n\n` +
+            `♻️ Restarting bot to apply changes…`
+        );
+
+        setTimeout(() => process.exit(0), 1500);
+    } catch (err) {
+        console.error('[update] failed:', err);
+        const out = (err.stdout || '') + (err.stderr || '') || err.message;
+        return m.reply(`❌ *UPDATE FAILED*\n\n\`\`\`${out.slice(0, 900)}\`\`\``);
+    }
+}
+
+
+
+
+
+
+
+                
 
         case 'broadcast': {
             if (!owner) return m.reply('⛔ Owner only.');
