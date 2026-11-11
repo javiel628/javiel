@@ -2027,37 +2027,36 @@ case 'antidel': {
         }
 
         case 'autoreply':
-        case 'autotype':
-        case 'autorecord':
-        case 'autorecordtype':
-        case 'alwaysonline': {
-            if (!owner) return m.reply('⛔ Owner only.');
-            const map = {
-                autoreply: ['autoReply', 'AI auto-reply'],
-                autotype: ['autoType', 'Auto typing'],
-                autorecord: ['autoRecord', 'Auto recording'],
-                autorecordtype: ['autoRecordType', 'Auto recording + typing'],
-                alwaysonline: ['alwaysOnline', 'Always online'],
-            };
-            const [key, label] = map[cmd];
-            const v = parseSwitch(args[0]);
-            if (v === null) {
-                const extra = cmd === 'autoreply' ? '\nReplies in private chats, and in groups when the bot is @mentioned or replied to.' : '';
-                return m.reply(`${label}: *${settings.get(key, false) ? 'ON' : 'OFF'}*\nUse: ${P}${cmd} on | off${extra}`);
-            }
-            settings.set(key, v);
-            if (v && ['autoType', 'autoRecord', 'autoRecordType'].includes(key)) {
-                for (const other of ['autoType', 'autoRecord', 'autoRecordType']) if (other !== key) settings.set(other, false);
-            }
-            if (key === 'alwaysOnline') {
-                if (v) {
-                    startAlwaysOnline(sock, settings);
-                    sock.sendPresenceUpdate('available').catch(() => {});
-                } else sock.sendPresenceUpdate('unavailable').catch(() => {});
-            }
-            return m.reply(`✅ ${label}: *${v ? 'ON' : 'OFF'}*`);
-        }
-
+case 'autotype':
+case 'autorecord':
+case 'autorecordtype':
+case 'alwaysonline': {
+    if (!owner) return m.reply('⛔ Owner only.');
+    const map = {
+        autoreply: ['autoReply', 'AI auto-reply'],
+        autotype: ['autoType', 'Auto typing'],
+        autorecord: ['autoRecord', 'Auto recording'],
+        autorecordtype: ['autoRecordType', 'Auto recording + typing'],
+        alwaysonline: ['alwaysOnline', 'Always online'],
+    };
+    const [key, label] = map[cmd];
+    const v = parseSwitch(args[0]);
+    if (v === null) {
+        const extra = cmd === 'autoreply' ? '\nReplies in private chats, and in groups when the bot is @mentioned or replied to.' : '';
+        return m.reply(`${label}: *${settings.get(key, false) ? 'ON' : 'OFF'}*\nUse: ${P}${cmd} on | off${extra}`);
+    }
+    settings.set(key, v);
+    if (v && ['autoType', 'autoRecord', 'autoRecordType'].includes(key)) {
+        for (const other of ['autoType', 'autoRecord', 'autoRecordType']) if (other !== key) settings.set(other, false);
+    }
+    if (key === 'alwaysOnline') {
+        if (v) {
+            startAlwaysOnline(sock, settings);
+            sock.sendPresenceUpdate('available').catch(() => {});
+        } else sock.sendPresenceUpdate('unavailable').catch(() => {});
+    }
+    return m.reply(`✅ ${label}: *${v ? 'ON' : 'OFF'}*`);
+}
         case 'togcstatus':
         case 'togs': {
             if (!owner) return m.reply('⛔ Owner only.');
