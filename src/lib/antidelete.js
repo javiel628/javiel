@@ -1,4 +1,3 @@
-
 'use strict';
 
 const { downloadMediaMessage } = require('./baileys');
@@ -34,31 +33,11 @@ function unwrapContent(message) {
     let depth = 0;
 
     while (content && depth++ < 6) {
-        if (content.ephemeralMessage?.message) {
-            content = content.ephemeralMessage.message;
-            continue;
-        }
-
-        if (content.viewOnceMessage?.message) {
-            content = content.viewOnceMessage.message;
-            continue;
-        }
-
-        if (content.viewOnceMessageV2?.message) {
-            content = content.viewOnceMessageV2.message;
-            continue;
-        }
-
-        if (content.viewOnceMessageV2Extension?.message) {
-            content = content.viewOnceMessageV2Extension.message;
-            continue;
-        }
-
-        if (content.documentWithCaptionMessage?.message) {
-            content = content.documentWithCaptionMessage.message;
-            continue;
-        }
-
+        if (content.ephemeralMessage?.message) { content = content.ephemeralMessage.message; continue; }
+        if (content.viewOnceMessage?.message) { content = content.viewOnceMessage.message; continue; }
+        if (content.viewOnceMessageV2?.message) { content = content.viewOnceMessageV2.message; continue; }
+        if (content.viewOnceMessageV2Extension?.message) { content = content.viewOnceMessageV2Extension.message; continue; }
+        if (content.documentWithCaptionMessage?.message) { content = content.documentWithCaptionMessage.message; continue; }
         break;
     }
 
@@ -74,43 +53,28 @@ function cacheOf(id) {
 
 function drop(cache, key) {
     const entry = cache.map.get(key);
-
     if (entry?.media?.buffer) {
         cache.bytes -= entry.media.buffer.length;
     }
-
     cache.map.delete(key);
 }
 
 function evict(cache) {
     const now = Date.now();
-
     for (const [key, entry] of cache.map) {
         const expired = now - entry.at >= TTL;
-
-        if (
-            cache.map.size <= MAX_ENTRIES &&
-            cache.bytes <= MAX_MEDIA_BYTES &&
-            !expired
-        ) {
-            break;
-        }
-
+        if (cache.map.size <= MAX_ENTRIES && cache.bytes <= MAX_MEDIA_BYTES && !expired) break;
         drop(cache, key);
     }
 }
 
 function kindOf(message) {
     const content = unwrapContent(message);
-
-    return Object.keys(content).find(
-        key => !SKIP_KINDS.has(key)
-    );
+    return Object.keys(content).find(key => !SKIP_KINDS.has(key));
 }
 
 function textOf(message) {
     const content = unwrapContent(message);
-
     return (
         content.conversation ||
         content.extendedTextMessage?.text ||
@@ -125,57 +89,30 @@ function textOf(message) {
 async function rememberMessage(sock, sessionId, raw, settings) {
     try {
         const config = settings.get('antidelete', {});
-
         if (!config.enabled) return;
 
         const jid = raw.key?.remoteJid;
         const id = raw.key?.id;
 
-        if (
-            !jid ||
-            !id ||
-            raw.key?.fromMe ||
-            !raw.message ||
-            jid === 'status@broadcast' ||
-            jid.endsWith('@newsletter')
-        ) {
+        if (!jid || !id || !raw.message || jid === 'status@broadcast' || jid.endsWith('@newsletter')) {
             return;
         }
 
         const content = unwrapContent(raw.message);
         const kind = kindOf(raw.message);
-
         if (!kind) return;
 
         const cache = cacheOf(sessionId);
         const key = `${jid}:${id}`;
-
-        // Avoid duplicate entries.
         if (cache.map.has(key)) return;
 
-        const entry = {
-            raw,
-            content,
-            kind,
-            at: Date.now()
-        };
-
+        const entry = { raw, content, kind, at: Date.now() };
         const node = content[kind];
 
-        if (
-            MEDIA_KINDS[kind] &&
-            Number(node?.fileLength || 0) <= MAX_ONE_MEDIA
-        ) {
+        if (MEDIA_KINDS[kind] && Number(node?.fileLength || 0) <= MAX_ONE_MEDIA) {
             try {
-                const buffer = await downloadMediaMessage(
-                    raw,
-                    'buffer',
-                    {}
-                );
-
-                if (Buffer.isBuffer(buffer) &&
-                    buffer.length <= MAX_ONE_MEDIA) {
-
+                const buffer = await downloadMediaMessage(raw, 'buffer', {});
+                if (Buffer.isBuffer(buffer) && buffer.length <= MAX_ONE_MEDIA) {
                     entry.media = {
                         type: MEDIA_KINDS[kind],
                         buffer,
@@ -185,20 +122,15 @@ async function rememberMessage(sock, sessionId, raw, settings) {
                         ptt: !!node?.ptt,
                         gif: !!node?.gifPlayback
                     };
-
                     cache.bytes += buffer.length;
                 }
             } catch (err) {
-                log.warn(
-                    'antidelete',
-                    `Media backup failed: ${err.message}`
-                );
+                log.warn('antidelete', `Media backup failed: ${err.message}`);
             }
         }
 
         cache.map.set(key, entry);
         evict(cache);
-
     } catch (err) {
         log.warn('antidelete', `Remember error: ${err.message}`);
     }
@@ -207,81 +139,58 @@ async function rememberMessage(sock, sessionId, raw, settings) {
 function ownerJid(sock, settings) {
     const owners = settings.get('owners', []) || [];
 
-    const owner = owners.find(
-        jid => String(jid).endsWith('@s.whatsapp.net')
-    );
+    const owner = owners
+        .map(String)
+        .map(j => (j.includes('@') ? j : `${j}@s.whatsapp.net`))
+        .find(Boolean);
 
     if (owner) return owner;
 
     const ownNumber = numOf(sock.user?.id);
-
-    return ownNumber
-        ? `${ownNumber}@s.whatsapp.net`
-        : null;
+    return ownNumber ? `${ownNumber}@s.whatsapp.net` : null;
 }
 
 async function handleRevoke(sock, sessionId, raw, settings) {
     try {
         const pm = raw.message?.protocolMessage;
-
-        if (
-            !pm ||
-            !(pm.type === 0 || pm.type === 'REVOKE')
-        ) {
-            return false;
-        }
+        if (!pm || !(pm.type === 0 || pm.type === 'REVOKE')) return false;
 
         const config = settings.get('antidelete', {});
+        if (!config.enabled || !pm.key?.id) return true;
 
-        if (!config.enabled || raw.key?.fromMe || !pm.key?.id) {
-            return true;
-        }
+        // Skip re-posting the bot's own deletes when mode is 'chat'
+        const originalFromMe = pm.key?.fromMe === true;
+        if (originalFromMe && config.mode === 'chat') return true;
 
         const chat = pm.key.remoteJid || raw.key.remoteJid;
-
         if (!chat) return true;
 
         const cache = cacheOf(sessionId);
         const key = `${chat}:${pm.key.id}`;
         const entry = cache.map.get(key);
-
         if (!entry) {
-            log.warn(
-                'antidelete',
-                `Deleted message not found in cache: ${pm.key.id}`
-            );
+            log.warn('antidelete', `Deleted message not found in cache: ${pm.key.id}`);
             return true;
         }
 
         drop(cache, key);
 
-        let target;
-
-        if (config.mode === 'dm') {
-            target = ownerJid(sock, settings);
-        } else {
-            target = chat;
-        }
-
+        let target = config.mode === 'dm' ? ownerJid(sock, settings) : chat;
         if (!target) {
             log.warn('antidelete', 'Could not determine destination');
             return true;
         }
 
-        const author =
-            entry.raw.key?.participant ||
-            entry.raw.key?.remoteJid ||
-            '';
+        const author = entry.raw.key?.participant || entry.raw.key?.remoteJid || '';
+        let authorPn = entry.raw.key?.participantAlt || author;
+        try {
+            if (authorPn && authorPn.endsWith('@lid')) {
+                const resolved = await pnOf(sock, authorPn);
+                if (resolved) authorPn = resolved;
+            }
+        } catch {}
 
-        const authorPn = await pnOf(
-            sock,
-            entry.raw.key?.participantAlt || author
-        ).catch(() => author);
-
-        let where = chat.endsWith('@g.us')
-            ? 'Group'
-            : 'Private chat';
-
+        let where = chat.endsWith('@g.us') ? 'Group' : 'Private chat';
         if (chat.endsWith('@g.us')) {
             try {
                 const metadata = await sock.groupMetadata(chat);
@@ -289,15 +198,13 @@ async function handleRevoke(sock, sessionId, raw, settings) {
             } catch {}
         }
 
-        const validMention =
-            typeof authorPn === 'string' &&
-            authorPn.endsWith('@s.whatsapp.net');
-
+        const validMention = typeof authorPn === 'string' && authorPn.endsWith('@s.whatsapp.net');
         const mentions = validMention ? [authorPn] : [];
+        const senderLabel = validMention ? '@' + numOf(authorPn) : (numOf(author) || 'Unknown');
 
         const header =
-            `🗑️ *SHADOW MD ANTI-DELETE*\n` +
-            `👤 Sender: ${validMention ? '@' + numOf(authorPn) : numOf(author)}\n` +
+            `🗑️ *么 SMILE PRIME MD ANTI-DELETE 么*\n` +
+            `👤 Sender: ${senderLabel}\n` +
             `💬 Chat: ${where}\n` +
             `🕒 Time: ${new Date(entry.at).toLocaleTimeString()}`;
 
@@ -309,7 +216,6 @@ async function handleRevoke(sock, sessionId, raw, settings) {
                 text: `${header}\n\n${text || `[${entry.kind.replace('Message', '')}]`}`,
                 mentions
             });
-
             return true;
         }
 
@@ -340,35 +246,17 @@ async function handleRevoke(sock, sessionId, raw, settings) {
                 mimetype: media.mimetype || 'audio/mp4',
                 ptt: media.ptt
             });
-
-            await sock.sendMessage(target, {
-                text: header,
-                mentions
-            });
+            await sock.sendMessage(target, { text: header, mentions });
         } else if (media.type === 'sticker') {
-            await sock.sendMessage(target, {
-                sticker: media.buffer
-            });
-
-            await sock.sendMessage(target, {
-                text: header,
-                mentions
-            });
+            await sock.sendMessage(target, { sticker: media.buffer });
+            await sock.sendMessage(target, { text: header, mentions });
         }
 
         return true;
-
     } catch (err) {
-        log.warn(
-            'antidelete',
-            `Revoke handler error: ${err.message}`
-        );
-
+        log.warn('antidelete', `Revoke handler error: ${err.message}`);
         return true;
     }
 }
 
-module.exports = {
-    rememberMessage,
-    handleRevoke
-};
+module.exports = { rememberMessage, handleRevoke };
