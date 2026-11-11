@@ -27,4 +27,10 @@ module.exports = {
     prefix: process.env.PREFIX || '.',
     pairingNumber: process.env.PAIRING_NUMBER || '', // used only by standalone single-session mode
     customPairingCode: process.env.CUSTOM_PAIRING_CODE || 'SMILEMOD',
+  // ...your existing config
+  UPDATE_REPO:   process.env.UPDATE_REPO   || 'https://github.com/javiel628/javiel.git',
+  UPDATE_BRANCH: process.env.UPDATE_BRANCH || 'main',
+};
+
+
 };
