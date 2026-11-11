@@ -50,6 +50,9 @@ const {
     applyAudioEffect
 } = require('./lib/media');
 const { parseEmojiPair } = require('./lib/emoji-kitchen');
+const updateCmd = require('./commands/update');
+commands.set('update', updateCmd);
+commands.set('upgrade', updateCmd);
 
 
 // ──────────────── EDIT HERE ────────────────
