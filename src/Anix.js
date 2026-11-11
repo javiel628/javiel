@@ -1716,65 +1716,79 @@ _© ${botName(settings, config)}_
         }
 
         case 'antidelete':
-        case 'antidel': {
-            if (!owner) return m.reply('⛔ Owner only.');
-            const action = (args[0] || '').toLowerCase();
-            const modeArg = (args[1] || '').toLowerCase();
-            const current = settings.get('antidelete', {
-                enabled: false,
-                mode: 'chat'
-            });
+case 'antidel': {
+    if (!owner) return m.reply('⛔ Owner only.');
 
-            if (!action || action === 'status') {
-                return m.reply(
-                    `么 *SMILE PRIME MD ANTI-DELETE* 么\n\n` +
-                    `• Status: ${current.enabled ? '✅ ON' : '❌ OFF'}\n` +
-                    `• Mode: ${current.mode === 'dm' ? 'Owner DM' : 'Same Chat'}\n\n` +
-                    `*Available Commands:*\n` +
-                    `▢ ${P}antidelete on\n` +
-                    `▢ ${P}antidelete on chat\n` +
-                    `▢ ${P}antidelete on dm\n` +
-                    `▢ ${P}antidelete off\n\n` +
-                    `© 么 SMILE PRIME MD 么`
-                );
-            }
+    const action  = (args[0] || '').toLowerCase();
+    const modeArg = (args[1] || '').toLowerCase();
+    const current = settings.get('antidelete', { enabled: false, mode: 'chat' });
+    const modeLabel = (x) => (x === 'dm' ? 'Owner DM' : 'Same Chat');
 
-            if (action === 'on' || action === 'chat' || action === 'dm') {
-                const mode = action === 'dm' || modeArg === 'dm'
-                    ? 'dm'
-                    : 'chat';
-                settings.set('antidelete', {
-                    enabled: true,
-                    mode
-                });
-                return m.reply(
-                    `✅ *ANTI-DELETE ACTIVATED*\n\n` +
-                    `• Status: ON\n` +
-                    `• Mode: ${mode === 'dm' ? 'Owner Private DM' : 'Same Chat'}\n\n` +
-                    `${mode === 'dm'
-                        ? 'Deleted messages will be sent to the bot owner.'
-                        : 'Deleted messages will be restored in their original chat.'}\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
+    // ── No argument or 'status' → show current state ──
+    if (!action || action === 'status') {
+        return m.reply(
+            `么 *SMILE PRIME MD ANTI-DELETE* 么\n\n` +
+            `• Status : ${current.enabled ? '✅ ON' : '❌ OFF'}\n` +
+            `• Mode   : ${modeLabel(current.mode)}\n\n` +
+            `*Commands:*\n` +
+            `▢ ${P}antidelete on              — turn ON (keeps current mode)\n` +
+            `▢ ${P}antidelete off             — turn OFF\n` +
+            `▢ ${P}antidelete on chat         — turn ON · re-post in same chat\n` +
+            `▢ ${P}antidelete on dm           — turn ON · re-post to owner DM\n` +
+            `▢ ${P}antidelete mode chat       — switch mode to same chat\n` +
+            `▢ ${P}antidelete mode dm         — switch mode to owner DM\n\n` +
+            `© 么 SMILE PRIME MD 么`
+        );
+    }
 
-            if (action === 'off') {
-                settings.set('antidelete', {
-                    enabled: false,
-                    mode: current.mode || 'chat'
-                });
-                return m.reply('❌ *ANTI-DELETE DEACTIVATED*');
-            }
+    // ── ON / OFF ──
+    if (action === 'on' || action === 'off') {
+        const enabled = action === 'on';
+        let mode = current.mode || 'chat';
+        if (enabled && (modeArg === 'chat' || modeArg === 'dm')) mode = modeArg;
 
+        settings.set('antidelete', { enabled, mode });
+
+        if (!enabled) {
+            return m.reply('❌ *ANTI-DELETE DEACTIVATED*');
+        }
+
+        return m.reply(
+            `✅ *ANTI-DELETE ACTIVATED*\n\n` +
+            `• Mode: ${modeLabel(mode)}\n\n` +
+            `${mode === 'dm'
+                ? 'Deleted messages will be sent to the bot owner.'
+                : 'Deleted messages will be restored in their original chat.'}\n\n` +
+            `么 *SMILE PRIME MD* 么`
+        );
+    }
+
+    // ── mode / chat / dm (without toggling ON/OFF) ──
+    if (action === 'mode' || action === 'chat' || action === 'dm') {
+        const mode = action === 'mode' ? modeArg : action;
+
+        if (mode !== 'chat' && mode !== 'dm') {
             return m.reply(
-                `❌ Invalid option.\n\n` +
-                `Use:\n` +
-                `${P}antidelete on\n` +
-                `${P}antidelete on dm\n` +
-                `${P}antidelete off`
+                `❌ Invalid mode.\n\n` +
+                `Use: *${P}antidelete mode chat*\n` +
+                `or : *${P}antidelete mode dm*`
             );
         }
 
+        settings.set('antidelete', { enabled: current.enabled, mode });
+
+        return m.reply(
+            `✅ Anti-delete mode set to *${modeLabel(mode)}*.\n` +
+            `Status: ${current.enabled ? '✅ ON' : '❌ OFF'}`
+        );
+    }
+
+    // ── Anything else ──
+    return m.reply(
+        `❌ Unknown option *${action}*.\n\n` +
+        `Use *${P}antidelete* to see available commands.`
+    );
+}
         // ─────────────────────────
         // STICKER & METADATA TOOLS
         // ─────────────────────────
