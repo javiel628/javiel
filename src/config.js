@@ -31,6 +31,3 @@ module.exports = {
   UPDATE_REPO:   process.env.UPDATE_REPO   || 'https://github.com/javiel628/javiel.git',
   UPDATE_BRANCH: process.env.UPDATE_BRANCH || 'main',
 };
-
-
-};
