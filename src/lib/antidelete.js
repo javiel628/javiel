@@ -27,7 +27,6 @@ const SKIP_KINDS = new Set([
     'pollUpdateMessage'
 ]);
 
-// Unwrap WhatsApp message containers.
 function unwrapContent(message) {
     let content = message;
     let depth = 0;
@@ -86,9 +85,6 @@ function textOf(message) {
     );
 }
 
-/**
- * Normalizes JID format so cache keys match between remember and revoke.
- */
 function normalizeJid(jid) {
     if (!jid) return jid;
     return String(jid)
@@ -139,7 +135,7 @@ async function rememberMessage(sock, sessionId, raw, settings) {
         }
 
         cache.map.set(key, entry);
-        log.info('antidelete', `✅ cached ${kind} · ${key}`);
+        log.info('antidelete', `cached ${kind} · ${key}`);
         evict(cache);
     } catch (err) {
         log.warn('antidelete', `Remember error: ${err.message}`);
@@ -261,9 +257,9 @@ async function handleRevoke(sock, sessionId, raw, settings) {
                     text: `${header}\n\n💬 *Message:*\n${text || `[${entry.kind.replace('Message', '')}]`}`,
                     mentions
                 });
-                log.info('antidelete', `✅ text restored → ${target} (${sent?.key?.id})`);
+                log.info('antidelete', `text restored → ${target} (${sent?.key?.id})`);
             } catch (err) {
-                log.error('antidelete', `❌ text send failed: ${err.message}`);
+                log.error('antidelete', `text send failed: ${err.message}`);
             }
             return true;
         }
@@ -272,18 +268,9 @@ async function handleRevoke(sock, sessionId, raw, settings) {
 
         try {
             if (media.type === 'image') {
-                await sock.sendMessage(target, {
-                    image: media.buffer,
-                    caption: captionWithHeader,
-                    mentions
-                });
+                await sock.sendMessage(target, { image: media.buffer, caption: captionWithHeader, mentions });
             } else if (media.type === 'video') {
-                await sock.sendMessage(target, {
-                    video: media.buffer,
-                    caption: captionWithHeader,
-                    gifPlayback: media.gif,
-                    mentions
-                });
+                await sock.sendMessage(target, { video: media.buffer, caption: captionWithHeader, gifPlayback: media.gif, mentions });
             } else if (media.type === 'document') {
                 await sock.sendMessage(target, {
                     document: media.buffer,
@@ -293,19 +280,15 @@ async function handleRevoke(sock, sessionId, raw, settings) {
                     mentions
                 });
             } else if (media.type === 'audio') {
-                await sock.sendMessage(target, {
-                    audio: media.buffer,
-                    mimetype: media.mimetype || 'audio/mp4',
-                    ptt: media.ptt
-                });
+                await sock.sendMessage(target, { audio: media.buffer, mimetype: media.mimetype || 'audio/mp4', ptt: media.ptt });
                 await sock.sendMessage(target, { text: header, mentions });
             } else if (media.type === 'sticker') {
                 await sock.sendMessage(target, { sticker: media.buffer });
                 await sock.sendMessage(target, { text: header, mentions });
             }
-            log.info('antidelete', `✅ media (${media.type}) restored → ${target}`);
+            log.info('antidelete', `media (${media.type}) restored → ${target}`);
         } catch (err) {
-            log.error('antidelete', `❌ media send failed: ${err.message}`);
+            log.error('antidelete', `media send failed: ${err.message}`);
         }
 
         return true;
