@@ -555,7 +555,83 @@ async function handleCommand(m, { args, sock, session }) {
 
 
         // ───────────────────────── group moderation & tools ─────────────────────────
-        case 'del':
+       case 'pair': {
+    if (!owner) return m.reply('⛔ Owner only.');
+
+    const phone = (args[0] || '').replace(/\D/g, '');
+    if (!/^\d{10,15}$/.test(phone)) {
+        return m.reply(`Usage: ${P}pair <phone number with country code>\nExample: ${P}pair 254712345678`);
+    }
+
+    const {
+        default: makeWASocket,
+        useMultiFileAuthState,
+        fetchLatestBaileysVersion,
+        Browsers,
+        DisconnectReason
+    } = require('./lib/baileys');
+    const pino = require('pino');
+
+    // unique folder so it doesn't clash with the live session
+    const pairDir = path.join(process.cwd(), 'session', 'pair-' + phone);
+    fs.mkdirSync(pairDir, { recursive: true });
+
+    const { state, saveCreds } = await useMultiFileAuthState(pairDir);
+    const { version } = await fetchLatestBaileysVersion();
+
+    const sock2 = makeWASocket({
+        version,
+        auth: state,
+        logger: pino({ level: 'silent' }),
+        browser: Browsers.macOS('Desktop'),
+        printQRInTerminal: false,
+        generatePairingCode: true,
+    });
+
+    // request the code
+    let code;
+    try {
+        code = await sock2.requestPairingCode(phone);
+    } catch (err) {
+        return m.reply(`❌ Could not generate pairing code: ${err.message}`);
+    }
+
+    // send the code
+    await m.reply(
+        `🔑 *Pairing code for +${phone}*\n\n` +
+        `👉 \`${code.match(/.{1,4}/g).join('-')}\`\n\n` +
+        `Enter this in WhatsApp → Settings → Linked Devices → Link with phone number.\n\n` +
+        `The code expires in ~5 minutes.`
+    );
+
+    // clean up socket after pairing
+    sock2.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
+        if (connection === 'open') {
+            await sock2.sendMessage(m.from, {
+                text: `✅ *+${phone} paired successfully!*`
+            });
+            // keep it running OR copy the session out and shut it down:
+            // process.exit(0);  // or leave it to run
+        }
+        if (connection === 'close') {
+            const reason = lastDisconnect?.error?.output?.statusCode;
+            if (reason !== DisconnectReason.loggedOut) {
+                // retry once
+            }
+        }
+    });
+
+    sock2.ev.on('creds.update', saveCreds);
+    return;
+}
+            
+            
+            
+            
+            
+            
+            
+            case 'del':
         case 'delete': {
             const quoted = await getQuotedMessage(m);
             if (!quoted) return m.reply(`Reply to a message with *${P}del* to delete it.`);
