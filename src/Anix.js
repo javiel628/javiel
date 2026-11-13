@@ -2128,85 +2128,39 @@ case 'antidel': {
             break;
         }
 
-
-        case 'autoreply':
+case 'autoreply':
         case 'autotype':
         case 'autorecord':
         case 'autorecordtype':
         case 'alwaysonline': {
             if (!owner) return m.reply('⛔ Owner only.');
-
             const map = {
-                autoreply:      ['autoReply', 'AI auto-reply', '🤖'],
-                autotype:       ['autoType', 'Auto typing', '⌨️'],
-                autorecord:     ['autoRecord', 'Auto recording', '🎙️'],
-                autorecordtype: ['autoRecordType', 'Auto recording + typing', '🎬'],
-                alwaysonline:   ['alwaysOnline', 'Always online', '🟢'],
+                autoreply: ['autoReply', 'AI auto-reply'],
+                autotype: ['autoType', 'Auto typing'],
+                autorecord: ['autoRecord', 'Auto recording'],
+                autorecordtype: ['autoRecordType', 'Auto recording + typing'],
+                alwaysonline: ['alwaysOnline', 'Always online'],
             };
-            const [key, label, icon] = map[cmd];
-            const current = settings.get(key, false);
-            const raw = (args[0] || '').toLowerCase();
-
-            // Show status + help
-            if (!raw || raw === 'status' || raw === 'help') {
-                const extra = cmd === 'autoreply'
-                    ? '\n_Replies in private chats, and in groups when @mentioned or replied to._'
-                    : '';
-                return m.reply(
-                    `╭━━━〔 ${icon} *${label.toUpperCase()}* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  📌 Status : ${current ? '✅ ON' : '❌ OFF'}\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `*Usage:*\n` +
-                    `• \`${P}${cmd} on\`\n` +
-                    `• \`${P}${cmd} off\`` +
-                    extra + '\n\n' +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-
-            const v = parseSwitch(raw);
+            const [key, label] = map[cmd];
+            const v = parseSwitch(args[0]);
             if (v === null) {
-                return m.reply(
-                    `❌ *Invalid value* \`${raw}\`\n\n` +
-                    `Use: \`${P}${cmd} on\` or \`${P}${cmd} off\``
-                );
+                const extra = cmd === 'autoreply' ? '\nReplies in private chats, and in groups when the bot is @mentioned or replied to.' : '';
+                return m.reply(`${label}: *${settings.get(key, false) ? 'ON' : 'OFF'}*\nUse: ${P}${cmd} on | off${extra}`);
             }
-
             settings.set(key, v);
-
-            // Mutual exclusion: only one of autoType/autoRecord/autoRecordType
-            // can be on at a time.
             if (v && ['autoType', 'autoRecord', 'autoRecordType'].includes(key)) {
-                for (const other of ['autoType', 'autoRecord', 'autoRecordType']) {
-                    if (other !== key) settings.set(other, false);
-                }
+                for (const other of ['autoType', 'autoRecord', 'autoRecordType']) if (other !== key) settings.set(other, false); // one presence style at a time
             }
-
             if (key === 'alwaysOnline') {
                 if (v) {
                     startAlwaysOnline(sock, settings);
                     sock.sendPresenceUpdate('available').catch(() => {});
-                } else {
-                    sock.sendPresenceUpdate('unavailable').catch(() => {});
-                }
+                } else sock.sendPresenceUpdate('unavailable').catch(() => {});
             }
-
-            const excluded = v && ['autoType', 'autoRecord', 'autoRecordType'].includes(key)
-                ? `\n\n_Other presence modes disabled._`
-                : '';
-
-            return m.reply(
-                `╭━━━〔 ${icon} *${label.toUpperCase()}* 〕━━━╮\n` +
-                `┃\n` +
-                `┃  📌 Status : ${v ? '✅ ON' : '❌ OFF'}\n` +
-                `┃\n` +
-                `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                `么 *SMILE PRIME MD* 么${excluded}`
-            );
+            return m.reply(`✅ ${label}: *${v ? 'ON' : 'OFF'}*`);
         }
-                
+        
+            
 
 
                 
