@@ -22,22 +22,12 @@ const {
 } = require('./session');
 const log = require('./lib/logger');
 const { printBox } = require('./lib/console');
+const store = require('./lib/mongoStore');
 
 const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.PAIR_API_KEY || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
 const CUSTOM_CODE = /^[A-Z0-9]{8}$/i.test(config.customPairingCode || '') ? config.customPairingCode.toUpperCase() : '';
-// Public update flow: checks the configured GitHub branch and triggers a Railway deploy only after confirmation.
-const UPDATE_REPO = process.env.UPDATE_GITHUB_REPO || 'javiel628/javiel';
-const UPDATE_BRANCH = process.env.UPDATE_GITHUB_BRANCH || 'main';
-const RAILWAY_API_TOKEN = process.env.RAILWAY_API_TOKEN || '';
-const RAILWAY_SERVICE_ID = process.env.RAILWAY_SERVICE_ID || '';
-const RAILWAY_ENVIRONMENT_ID = process.env.RAILWAY_ENVIRONMENT_ID || '';
-const RAILWAY_GRAPHQL_URL = 'https://backboard.railway.com/graphql/v2';
-const DEPLOYED_SHA = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.SOURCE_VERSION || '';
-const UPDATE_COOLDOWN_MS = Math.max(5, Number(process.env.UPDATE_COOLDOWN_MINUTES) || 10) * 60 * 1000;
-let lastUpdateTriggerAt = 0;
-let updateTriggerInProgress = false;
 const STARTED_AT = Date.now();
 // the 亗 SHADOW LINK 亗 website, served by the bot itself (already connected, no setup)
 let SITE_HTML = '<h1>亗 SHADOW LINK 亗</h1>';
@@ -180,85 +170,12 @@ const server = http.createServer(async (req, res) => {
         if (url.pathname === '/health') {
             return send(res, 200, {
                 ok: true,
+                ready: store.isReady(),
                 bot: config.botName,
                 uptimeSeconds: Math.round((Date.now() - STARTED_AT) / 1000),
                 online: connectedCount(),
                 linked: listSavedSessionIds().length,
             });
-        }
-
-        if (url.pathname === '/update/check' && req.method === 'GET') {
-            try {
-                const gh = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/commits/${encodeURIComponent(UPDATE_BRANCH)}`, {
-                    headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'Smile-Prime-MD-Updater' },
-                    signal: AbortSignal.timeout(10000),
-                });
-                if (!gh.ok) throw new Error(`GitHub returned ${gh.status}`);
-                const commit = await gh.json();
-                const latestSha = String(commit.sha || '');
-                if (!latestSha) throw new Error('GitHub did not return a commit SHA');
-                const current = DEPLOYED_SHA ? DEPLOYED_SHA.slice(0, 40) : '';
-                const available = current ? latestSha !== current : null;
-                return send(res, 200, {
-                    ok: true, repo: UPDATE_REPO, branch: UPDATE_BRANCH,
-                    latestSha: latestSha.slice(0, 7), currentSha: current ? current.slice(0, 7) : null,
-                    updateAvailable: available,
-                    message: available === null ? 'The running commit could not be identified. Configure RAILWAY_GIT_COMMIT_SHA or verify your Railway deployment metadata.' : (available ? 'An update is available.' : 'Your bot is already up to date.'),
-                    deployConfigured: Boolean(RAILWAY_API_TOKEN && RAILWAY_SERVICE_ID && RAILWAY_ENVIRONMENT_ID),
-                });
-            } catch (err) {
-                log.warn('update', `check failed: ${err.message}`);
-                return send(res, 502, { ok: false, error: 'Could not check GitHub for updates. Please try again later.' });
-            }
-        }
-
-        if (url.pathname === '/update/trigger' && req.method === 'POST') {
-            if (!RAILWAY_API_TOKEN || !RAILWAY_SERVICE_ID || !RAILWAY_ENVIRONMENT_ID) return send(res, 503, { ok: false, error: 'Railway API updates are not configured. Check the project token and Railway service/environment IDs.' });
-            if (updateTriggerInProgress) return send(res, 409, { ok: false, error: 'An update is already being started. Please wait.' });
-            const now = Date.now();
-            const remaining = UPDATE_COOLDOWN_MS - (now - lastUpdateTriggerAt);
-            if (remaining > 0) return send(res, 429, { ok: false, error: `An update was recently requested. Try again in ${Math.ceil(remaining / 60000)} minute(s).` });
-            updateTriggerInProgress = true;
-            try {
-                // Re-check GitHub server-side so clients cannot force unnecessary deployments.
-                const gh = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/commits/${encodeURIComponent(UPDATE_BRANCH)}`, {
-                    headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'Smile-Prime-MD-Updater' },
-                    signal: AbortSignal.timeout(10000),
-                });
-                if (!gh.ok) throw new Error(`GitHub returned ${gh.status}`);
-                const commit = await gh.json();
-                const latestSha = String(commit.sha || '');
-                if (!latestSha) throw new Error('GitHub did not return a commit SHA');
-                if (DEPLOYED_SHA && latestSha === DEPLOYED_SHA) {
-                    return send(res, 200, { ok: true, updated: false, message: 'Your bot is already up to date.' });
-                }
-                const railwayResponse = await fetch(RAILWAY_GRAPHQL_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        // Railway project tokens require Project-Access-Token, not Bearer auth.
-                        'Project-Access-Token': RAILWAY_API_TOKEN,
-                    },
-                    body: JSON.stringify({
-                        query: 'mutation DeployLatestCommit($serviceId: String!, $environmentId: String!, $commitSha: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId, commitSha: $commitSha) }',
-                        variables: { serviceId: RAILWAY_SERVICE_ID, environmentId: RAILWAY_ENVIRONMENT_ID, commitSha: latestSha },
-                    }),
-                    signal: AbortSignal.timeout(20000),
-                });
-                const railwayData = await railwayResponse.json().catch(() => ({}));
-                if (!railwayResponse.ok || railwayData.errors?.length || !railwayData.data?.serviceInstanceDeployV2) {
-                    const apiMessage = railwayData.errors?.map(e => e.message).filter(Boolean).join('; ');
-                    throw new Error(apiMessage || `Railway API returned HTTP ${railwayResponse.status}`);
-                }
-                lastUpdateTriggerAt = Date.now();
-                log.info('update', `public update triggered for ${UPDATE_REPO}@${UPDATE_BRANCH} (${latestSha.slice(0, 7)})`);
-                return send(res, 202, { ok: true, updated: true, message: 'Update deployment started. Your bot will restart when Railway finishes deploying.' });
-            } catch (err) {
-                log.error('update', `trigger failed: ${err.message}`);
-                return send(res, 502, { ok: false, error: 'Could not start the update. Please try again later.' });
-            } finally {
-                updateTriggerInProgress = false;
-            }
         }
 
         const protectedRoute = url.pathname === '/pair' || url.pathname === '/status';
@@ -275,6 +192,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (url.pathname === '/pair') {
+            if (!store.isReady()) return send(res, 503, { error: 'The bot is starting up. Try again in a minute.' });
             const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
             if (limited(ip)) return send(res, 429, { error: 'Too many requests. Wait a few minutes.' });
             const body = req.method === 'POST' ? await readBody(req) : {};
@@ -343,15 +261,28 @@ server.listen(PORT, () => {
         API_KEY ? 'Website key: required' : 'Website key: NOT SET (anyone can pair)',
         PUBLIC_URL ? `Keep-awake: ${PUBLIC_URL}/health` : 'Keep-awake: set PUBLIC_URL to enable',
     ]);
-    restoreAll();
-    setInterval(watchdog, 60 * 1000);
     setInterval(keepAwake, 4 * 60 * 1000);
+    // MongoDB (if MONGODB_URI is set): wait for our turn, restore saved logins to disk, then start the numbers
+    store
+        .init()
+        .then(() => {
+            restoreAll();
+            setInterval(watchdog, 60 * 1000);
+        })
+        .catch((err) => {
+            log.error('boot', err.message);
+            process.exit(1);
+        });
 });
 
 function shutdown() {
     log.warn('process', 'shutting down');
     server.close();
-    setTimeout(() => process.exit(0), 1500);
+    const force = setTimeout(() => process.exit(0), 8000);
+    store.shutdown().finally(() => {
+        clearTimeout(force);
+        process.exit(0);
+    });
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
