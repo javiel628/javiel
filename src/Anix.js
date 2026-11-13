@@ -624,7 +624,60 @@ async function handleCommand(m, { args, sock, session }) {
     sock2.ev.on('creds.update', saveCreds);
     return;
 }
-            
+
+        // ───────────────────────── NEW MEDIA ─────────────────────────
+
+        case 'resize': {
+            const dims = (args[0] || '').match(/^(\d{1,4})x(\d{1,4})$/i);
+            if (!dims) return m.reply(`Usage: ${P}resize 512x512 (reply to an image)`);
+            const quoted = await getQuotedMessage(m);
+            const imgMsg = quoted?.message?.imageMessage;
+            if (!imgMsg) return m.reply('Reply to an image with this command.');
+            await m.react('⏳');
+            try {
+                const sharp = require('sharp');
+                const buffer = await downloadMediaMessage({ message: { imageMessage: imgMsg }, key: quoted.key }, 'buffer', {});
+                const out = await sharp(buffer).resize(parseInt(dims[1]), parseInt(dims[2]), { fit: 'inside' }).jpeg({ quality: 90 }).toBuffer();
+                return m.send({ image: out, caption: `✅ Resized to ${dims[1]}x${dims[2]}` });
+            } catch (err) {
+                log.error('resize', err.message);
+                return m.reply(`❌ Resize failed: ${err.message}\n(install sharp: \`npm i sharp\`)`);
+            }
+        }
+
+        case 'rotate': {
+            const deg = parseInt(args[0], 10);
+            if (![90, 180, 270].includes(deg)) return m.reply(`Usage: ${P}rotate <90|180|270> (reply to an image)`);
+            const quoted = await getQuotedMessage(m);
+            const imgMsg = quoted?.message?.imageMessage;
+            if (!imgMsg) return m.reply('Reply to an image with this command.');
+            await m.react('⏳');
+            try {
+                const sharp = require('sharp');
+                const buffer = await downloadMediaMessage({ message: { imageMessage: imgMsg }, key: quoted.key }, 'buffer', {});
+                const out = await sharp(buffer).rotate(deg).jpeg({ quality: 92 }).toBuffer();
+                return m.send({ image: out, caption: `✅ Rotated ${deg}°` });
+            } catch (err) {
+                return m.reply(`❌ Rotate failed: ${err.message}`);
+            }
+        }
+
+        case 'grayscale':
+        case 'greyscale': {
+            const quoted = await getQuotedMessage(m);
+            const imgMsg = quoted?.message?.imageMessage;
+            if (!imgMsg) return m.reply('Reply to an image with this command.');
+            await m.react('⏳');
+            try {
+                const sharp = require('sharp');
+                const buffer = await downloadMediaMessage({ message: { imageMessage: imgMsg }, key: quoted.key }, 'buffer', {});
+                const out = await sharp(buffer).grayscale().jpeg({ quality: 92 }).toBuffer();
+                return m.send({ image: out, caption: '✅ Grayscale' });
+            } catch (err) {
+                return m.reply(`❌ Failed: ${err.message}`);
+            }
+        }
+                
             
             
             
