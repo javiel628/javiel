@@ -1635,5 +1635,60 @@
       updateHint();
     })();
   </script>
+
+  <section id="botUpdatePanel" style="max-width:720px;margin:28px auto;padding:22px;border:1px solid rgba(0,229,176,.25);border-radius:18px;background:rgba(10,20,28,.88);color:#eefbf7;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.22)">
+    <div style="font-size:1.25rem;font-weight:800;letter-spacing:.04em">BOT UPDATES</div>
+    <p style="margin:8px 0 16px;color:#a9c4bd">Check GitHub for the latest Smile Prime MD features and fixes.</p>
+    <button id="checkBotUpdate" type="button" style="border:0;border-radius:10px;padding:13px 22px;background:#00d6a3;color:#06251e;font-weight:800;cursor:pointer">CHECK FOR UPDATES</button>
+    <div id="botUpdateStatus" role="status" aria-live="polite" style="margin-top:14px;color:#c8ddd7">Ready to check.</div>
+    <div id="botUpdateConfirm" hidden style="margin-top:14px">
+      <p style="margin:0 0 12px;font-weight:700">An update is available. Do you want to update all bots hosted on this service?</p>
+      <button id="confirmBotUpdate" type="button" style="border:0;border-radius:9px;padding:11px 22px;background:#00d6a3;color:#06251e;font-weight:800;cursor:pointer">YES, UPDATE</button>
+      <button id="cancelBotUpdate" type="button" style="margin-left:8px;border:1px solid #718b84;border-radius:9px;padding:11px 22px;background:transparent;color:#eefbf7;font-weight:700;cursor:pointer">NO, CANCEL</button>
+    </div>
+  </section>
+  <script>
+  (() => {
+    const checkBtn = document.getElementById('checkBotUpdate');
+    const status = document.getElementById('botUpdateStatus');
+    const confirmBox = document.getElementById('botUpdateConfirm');
+    const yesBtn = document.getElementById('confirmBotUpdate');
+    const noBtn = document.getElementById('cancelBotUpdate');
+    if (!checkBtn || !status) return;
+    let checked = false;
+    checkBtn.addEventListener('click', async () => {
+      checkBtn.disabled = true; confirmBox.hidden = true;
+      status.textContent = 'Checking GitHub for updates…';
+      try {
+        const response = await fetch('/update/check', { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || 'Update check failed.');
+        checked = true;
+        if (data.updateAvailable === false) status.textContent = '✓ Your bot is already up to date.';
+        else if (data.updateAvailable === true) {
+          status.textContent = `Update available (${data.latestSha}).`;
+          if (!data.deployConfigured) status.textContent += ' The server owner has not configured Railway updates yet.';
+          else confirmBox.hidden = false;
+        } else status.textContent = data.message;
+      } catch (err) { status.textContent = err.message || 'Could not check for updates.'; }
+      finally { checkBtn.disabled = false; }
+    });
+    noBtn.addEventListener('click', () => { confirmBox.hidden = true; status.textContent = 'Update cancelled. No changes were made.'; });
+    yesBtn.addEventListener('click', async () => {
+      if (!checked) return;
+      yesBtn.disabled = true; noBtn.disabled = true;
+      status.textContent = 'Starting Railway deployment…';
+      try {
+        const response = await fetch('/update/trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || 'Could not start update.');
+        confirmBox.hidden = true;
+        status.textContent = data.message || 'Update started. The bot will restart after deployment.';
+      } catch (err) { status.textContent = err.message || 'Could not start update.'; }
+      finally { yesBtn.disabled = false; noBtn.disabled = false; }
+    });
+  })();
+  </script>
+
 </body>
 </html>
