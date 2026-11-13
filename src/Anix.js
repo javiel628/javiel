@@ -1623,69 +1623,146 @@ async function handleCommand(m, { args, sock, session }) {
             await m.reply('♻️ Restarting...');
             process.exit(0);
         }
+case 'update': {
+    if (!owner) return m.reply('⛔ Owner only.');
 
+    const { execFile } = require('child_process');
+    const util = require('util');
+    const execFileAsync = util.promisify(execFile);
 
-        case 'update': {
-            if (!owner) return m.reply('⛔ Owner only.');
+    // ── EDIT HERE: your bot repo ──
+    const REPO_URL   = 'https://github.com/javiel628/javiel.git';
+    const REPO_BRANCH = process.env.UPDATE_BRANCH || 'main';
 
-            const { execFile } = require('child_process');
-            const util = require('util');
-            const execFileAsync = util.promisify(execFile);
+    const cwd = process.cwd();
+    const git = (...a) => execFileAsync('git', a, {
+        cwd,
+        timeout: 60000,
+        maxBuffer: 10 * 1024 * 1024,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    const npm = (...a) => execFileAsync('npm', a, {
+        cwd,
+        timeout: 300000,
+        shell: true, // needed on Windows for npm
+        maxBuffer: 10 * 1024 * 1024,
+    });
 
-            const cwd = process.cwd();
-            const git = (...a) => execFileAsync('git', a, { cwd, timeout: 60000 });
-            const npm = (...a) => execFileAsync('npm', a, { cwd, timeout: 300000, shell: true });
+    await m.reply('🔧 *SMILE PRIME MD · UPDATE*\n\n> Checking repository…');
 
-            await m.reply('🔧 *SMILE PRIME MD · UPDATE*\n\n> Fetching latest changes…');
+    try {
+        // 1. Verify we're inside a git work tree
+        const inside = await git('rev-parse', '--is-inside-work-tree').catch(() => ({ stdout: '' }));
+        if (inside.stdout.trim() !== 'true') {
+            return m.reply(
+                '❌ *This bot is not a git checkout.*\n\n' +
+                'To enable updates, clone the repo instead of downloading a zip:\n' +
+                `\`\`\`\ngit clone ${REPO_URL}\ncd javiel\nnpm install\n\`\`\``
+            );
+        }
 
+        // 2. Ensure "origin" points at the official repo
+        const { stdout: originOut } = await git('remote', 'get-url', 'origin').catch(() => ({ stdout: '' }));
+        const currentOrigin = originOut.trim();
+        if (!currentOrigin) {
+            await git('remote', 'add', 'origin', REPO_URL);
+        } else if (currentOrigin !== REPO_URL) {
+            await m.reply(
+                `⚠️ *Origin remote mismatch*\n\n` +
+                `> Current: \`${sanitizeGitError(currentOrigin)}\`\n` +
+                `> Expected: \`${REPO_URL}\`\n\n` +
+                `Re-pointing origin to the official repo…`
+            );
+            await git('remote', 'set-url', 'origin', REPO_URL);
+        }
+
+        // 3. Work out the current branch (fall back to main if detached)
+        let branch = REPO_BRANCH;
+        const { stdout: branchOut } = await git('rev-parse', '--abbrev-ref', 'HEAD').catch(() => ({ stdout: '' }));
+        const headBranch = branchOut.trim();
+        if (headBranch && headBranch !== 'HEAD') branch = headBranch;
+
+        // 4. Refuse to run on a detached HEAD with uncommitted work we can't stash
+        const { stdout: statusOut } = await git('status', '--porcelain');
+        const isDirty = statusOut.trim().length > 0;
+
+        // 5. Stash any local edits so the merge can proceed
+        if (isDirty) {
+            await m.reply('📦 *Local changes detected* — stashing before update…');
+            await git('stash', 'push', '-u', '-m', `auto-stash-${Date.now()}`);
+        }
+
+        // 6. Fetch + fast-forward or merge
+        await git('fetch', 'origin', branch);
+        let merge;
+        try {
+            merge = await git('merge', `origin/${branch}`, '--no-edit', '--allow-unrelated-histories');
+        } catch (err) {
+            // Merge conflict → abort and restore stash
+            await git('merge', '--abort').catch(() => {});
+            if (isDirty) await git('stash', 'pop').catch(() => {});
+            const out = (err.stdout || '') + (err.stderr || '') || err.message;
+            return m.reply(
+                `❌ *Update blocked by merge conflict*\n\n` +
+                `\`\`\`${sanitizeGitError(out).slice(0, 900)}\`\`\`\n\n` +
+                'Local edits were restored. Resolve manually or run `git reset --hard origin/' + branch + '` then retry.'
+            );
+        }
+
+        const mergedOutput = (merge.stdout || '') + (merge.stderr || '');
+        const alreadyUpToDate = /Already up[- ]to[- ]date/i.test(mergedOutput);
+
+        // 7. Re-apply stashed local edits
+        if (isDirty) {
             try {
-                const inside = await git('rev-parse', '--is-inside-work-tree').catch(() => ({ stdout: '' }));
-                if (!inside.stdout.trim()) {
-                    return m.reply('❌ This bot is not a git checkout.');
-                }
-
-                const { stdout: originOut } = await git('remote', 'get-url', 'origin').catch(() => ({ stdout: '' }));
-                if (!originOut.trim()) {
-                    return m.reply('❌ No git remote "origin" configured.');
-                }
-
-                const { stdout: branchOut } = await git('rev-parse', '--abbrev-ref', 'HEAD').catch(() => ({ stdout: '' }));
-                const branch = process.env.UPDATE_BRANCH || branchOut.trim() || 'main';
-
-                await git('stash', 'push', '-u', '-m', 'auto-stash-before-update').catch(() => {});
-                await git('fetch', 'origin', branch);
-
-                const merge = await git('merge', `origin/${branch}`, '--no-edit', '--allow-unrelated-histories')
-                    .catch((e) => { throw new Error((e.stdout || '') + (e.stderr || '') || e.message); });
-
-                const changed = !/Already up[- ]to[- ]date/i.test(merge.stdout + merge.stderr);
-                if (!changed) {
-                    return m.reply('✅ *Already up to date.*\nNo new commits.');
-                }
-
-                await m.reply('📦 *Changes pulled.* Installing dependencies…');
-                await npm('install', '--no-audit', '--no-fund').catch((e) => {
-                    const out = (e.stdout || '') + (e.stderr || '');
-                    throw new Error('npm install failed:\n' + out.slice(-800));
-                });
-
-                const { stdout: commit } = await git('log', '-1', '--pretty=format:%h · %s (%an)');
-
+                await git('stash', 'pop');
+            } catch (stashErr) {
                 await m.reply(
-                    `✅ *UPDATE COMPLETE*\n\n` +
-                    `> *Branch:* ${branch}\n` +
-                    `> *Commit:* ${commit}\n\n` +
-                    `♻️ Restarting bot to apply changes…`
+                    `⚠️ *Code updated*, but your stashed changes could not be re-applied cleanly.\n\n` +
+                    `Run \`git stash list\` and \`git stash pop\` manually to recover them.`
                 );
-
-                setTimeout(() => process.exit(0), 1500);
-                return;
-            } catch (err) {
-                log.error('update', err.stack || err.message);
-                const out = (err.stdout || '') + (err.stderr || '') || err.message;
-                return m.reply(`❌ *UPDATE FAILED*\n\n\`\`\`${sanitizeGitError(out).slice(0, 900)}\`\`\``);
             }
         }
+
+        if (alreadyUpToDate) {
+            return m.reply('✅ *Already up to date.*\nNo new commits on `origin/' + branch + '`.');
+        }
+
+        // 8. Install dependencies
+        await m.reply('📦 *Changes pulled.* Installing dependencies…');
+        try {
+            await npm('install', '--no-audit', '--no-fund');
+        } catch (npmErr) {
+            const out = (npmErr.stdout || '') + (npmErr.stderr || '') || npmErr.message;
+            return m.reply(
+                `⚠️ *Code updated*, but \`npm install\` failed:\n\n\`\`\`${out.slice(-800)}\`\`\`\n\n` +
+                'You may need to run `npm install` manually.'
+            );
+        }
+
+        // 9. Report the commit we're now on
+        const { stdout: commit } = await git('log', '-1', '--pretty=format:%h · %s (%an)').catch(() => ({ stdout: 'unknown' }));
+        const { stdout: shortLog } = await git('log', '--oneline', '-5').catch(() => ({ stdout: '' }));
+
+        await m.reply(
+            `✅ *UPDATE COMPLETE*\n\n` +
+            `> *Repo:* ${REPO_URL}\n` +
+            `> *Branch:* ${branch}\n` +
+            `> *Commit:* ${commit.trim()}\n\n` +
+            `*Recent commits:*\n\`\`\`\n${shortLog.trim()}\n\`\`\`\n\n` +
+            `♻️ Restarting bot to apply changes…`
+        );
+
+        setTimeout(() => process.exit(0), 1500);
+        return;
+    } catch (err) {
+        log.error('update', err.stack || err.message);
+        const out = (err.stdout || '') + (err.stderr || '') || err.message;
+        return m.reply(`❌ *UPDATE FAILED*\n\n\`\`\`${sanitizeGitError(out).slice(0, 900)}\`\`\``);
+    }
+}
+
+        
 
 
         case 'broadcast': {
