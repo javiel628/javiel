@@ -27,9 +27,17 @@ const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.PAIR_API_KEY || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
 const CUSTOM_CODE = /^[A-Z0-9]{8}$/i.test(config.customPairingCode || '') ? config.customPairingCode.toUpperCase() : '';
+// Public update flow: checks the configured GitHub branch and triggers a Railway deploy only after confirmation.
+const UPDATE_REPO = process.env.UPDATE_GITHUB_REPO || 'javiel628/javiel';
+const UPDATE_BRANCH = process.env.UPDATE_GITHUB_BRANCH || 'main';
+const DEPLOY_HOOK = process.env.RAILWAY_DEPLOY_HOOK || '';
+const DEPLOYED_SHA = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.SOURCE_VERSION || '';
+const UPDATE_COOLDOWN_MS = Math.max(5, Number(process.env.UPDATE_COOLDOWN_MINUTES) || 10) * 60 * 1000;
+let lastUpdateTriggerAt = 0;
+let updateTriggerInProgress = false;
 const STARTED_AT = Date.now();
 // the 亗 SHADOW LINK 亗 website, served by the bot itself (already connected, no setup)
-let SITE_HTML = '<h1>亗 SHADOW LINK 亗</h1>';
+let SITE_HTML = '<h1>亗  𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 亗</h1>';
 try {
     SITE_HTML = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
 } catch (err) {
@@ -176,6 +184,64 @@ const server = http.createServer(async (req, res) => {
             });
         }
 
+        if (url.pathname === '/update/check' && req.method === 'GET') {
+            try {
+                const gh = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/commits/${encodeURIComponent(UPDATE_BRANCH)}`, {
+                    headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'Smile-Prime-MD-Updater' },
+                    signal: AbortSignal.timeout(10000),
+                });
+                if (!gh.ok) throw new Error(`GitHub returned ${gh.status}`);
+                const commit = await gh.json();
+                const latestSha = String(commit.sha || '');
+                if (!latestSha) throw new Error('GitHub did not return a commit SHA');
+                const current = DEPLOYED_SHA ? DEPLOYED_SHA.slice(0, 40) : '';
+                const available = current ? latestSha !== current : null;
+                return send(res, 200, {
+                    ok: true, repo: UPDATE_REPO, branch: UPDATE_BRANCH,
+                    latestSha: latestSha.slice(0, 7), currentSha: current ? current.slice(0, 7) : null,
+                    updateAvailable: available,
+                    message: available === null ? 'The running commit could not be identified. Configure RAILWAY_GIT_COMMIT_SHA or verify your Railway deployment metadata.' : (available ? 'An update is available.' : 'Your bot is already up to date.'),
+                    deployConfigured: Boolean(DEPLOY_HOOK),
+                });
+            } catch (err) {
+                log.warn('update', `check failed: ${err.message}`);
+                return send(res, 502, { ok: false, error: 'Could not check GitHub for updates. Please try again later.' });
+            }
+        }
+
+        if (url.pathname === '/update/trigger' && req.method === 'POST') {
+            if (!DEPLOY_HOOK) return send(res, 503, { ok: false, error: 'Updates are not configured by the server owner yet.' });
+            if (updateTriggerInProgress) return send(res, 409, { ok: false, error: 'An update is already being started. Please wait.' });
+            const now = Date.now();
+            const remaining = UPDATE_COOLDOWN_MS - (now - lastUpdateTriggerAt);
+            if (remaining > 0) return send(res, 429, { ok: false, error: `An update was recently requested. Try again in ${Math.ceil(remaining / 60000)} minute(s).` });
+            updateTriggerInProgress = true;
+            try {
+                // Re-check GitHub server-side so clients cannot force unnecessary deployments.
+                const gh = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/commits/${encodeURIComponent(UPDATE_BRANCH)}`, {
+                    headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'Smile-Prime-MD-Updater' },
+                    signal: AbortSignal.timeout(10000),
+                });
+                if (!gh.ok) throw new Error(`GitHub returned ${gh.status}`);
+                const commit = await gh.json();
+                const latestSha = String(commit.sha || '');
+                if (!latestSha) throw new Error('GitHub did not return a commit SHA');
+                if (DEPLOYED_SHA && latestSha === DEPLOYED_SHA) {
+                    return send(res, 200, { ok: true, updated: false, message: 'Your bot is already up to date.' });
+                }
+                const hookResponse = await fetch(DEPLOY_HOOK, { method: 'POST', signal: AbortSignal.timeout(15000) });
+                if (!hookResponse.ok) throw new Error(`Railway deployment hook returned ${hookResponse.status}`);
+                lastUpdateTriggerAt = Date.now();
+                log.info('update', `public update triggered for ${UPDATE_REPO}@${UPDATE_BRANCH} (${latestSha.slice(0, 7)})`);
+                return send(res, 202, { ok: true, updated: true, message: 'Update deployment started. Your bot will restart when Railway finishes deploying.' });
+            } catch (err) {
+                log.error('update', `trigger failed: ${err.message}`);
+                return send(res, 502, { ok: false, error: 'Could not start the update. Please try again later.' });
+            } finally {
+                updateTriggerInProgress = false;
+            }
+        }
+
         const protectedRoute = url.pathname === '/pair' || url.pathname === '/status';
         // the built-in website (same address) needs no key; other websites must send PAIR_API_KEY
         const sameSite = req.headers['sec-fetch-site'] === 'same-origin';
@@ -254,7 +320,7 @@ function keepAwake() {
 server.listen(PORT, () => {
     printBox([
         `${config.botName}`,
-        `亗 SHADOW LINK 亗 website + pairing on port ${PORT}`,
+        `亗  𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 亗 website + pairing on port ${PORT}`,
         API_KEY ? 'Website key: required' : 'Website key: NOT SET (anyone can pair)',
         PUBLIC_URL ? `Keep-awake: ${PUBLIC_URL}/health` : 'Keep-awake: set PUBLIC_URL to enable',
     ]);
