@@ -1887,111 +1887,7 @@ case 'antidel': {
 
         return m.reply(
 
-        case 'antidelete':
-        case 'antidel': {
-            if (!owner) return m.reply('⛔ Owner only.');
-
-            const action  = (args[0] || '').toLowerCase();
-            const modeArg = (args[1] || '').toLowerCase();
-            const current = settings.get('antidelete', { enabled: false, mode: 'chat' });
-            const modeLabel = (x) => (x === 'dm' ? 'Owner DM' : 'Same Chat');
-            const onOff = (v) => (v ? '✅ ON' : '❌ OFF');
-
-            if (!action || action === 'status') {
-                return m.reply(
-                    `╭━━━〔 🛡️ *ANTI-DELETE* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  📌 Status : ${onOff(current.enabled)}\n` +
-                    `┃  🎯 Mode   : *${modeLabel(current.mode)}*\n` +
-                    `┃  🌍 Scope  : Groups + Private DMs\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `╭━━━〔 📖 *COMMANDS* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete on\n` +
-                    `┃      → turn ON (keeps mode)\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete off\n` +
-                    `┃      → turn OFF\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete on chat\n` +
-                    `┃      → ON · restore in original chat\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete on dm\n` +
-                    `┃      → ON · forward to owner DM\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete mode chat\n` +
-                    `┃      → switch to same-chat restore\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete mode dm\n` +
-                    `┃      → switch to owner-DM forward\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-
-            if (action === 'on' || action === 'off') {
-                const enabled = action === 'on';
-                let mode = current.mode || 'chat';
-                if (enabled && (modeArg === 'chat' || modeArg === 'dm')) mode = modeArg;
-
-                settings.set('antidelete', { enabled, mode });
-
-                if (!enabled) {
-                    return m.reply(
-                        `╭━━━〔 ❌ *DEACTIVATED* 〕━━━╮\n` +
-                        `┃\n` +
-                        `┃  Anti-delete is now *OFF*.\n` +
-                        `┃  Deleted messages will not\n` +
-                        `┃  be recovered anywhere.\n` +
-                        `┃\n` +
-                        `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                        `么 *SMILE PRIME MD* 么`
-                    );
-                }
-
-                return m.reply(
-                    `╭━━━〔 ✅ *ACTIVATED* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  🎯 Mode  : *${modeLabel(mode)}*\n` +
-                    `┃  🌍 Scope : Groups + Private DMs\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `${mode === 'dm'
-                        ? '📩 Deleted messages will be *forwarded to the owner DM* from any chat.'
-                        : '💬 Deleted messages will be *restored in their original chat* (groups or DMs).'}\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-
-            if (action === 'mode' || action === 'chat' || action === 'dm') {
-                const mode = action === 'mode' ? modeArg : action;
-
-                if (mode !== 'chat' && mode !== 'dm') {
-                    return m.reply(
-                        `❌ *Invalid mode*\n\n` +
-                        `Use:\n` +
-                        `• \`${P}antidelete mode chat\`\n` +
-                        `• \`${P}antidelete mode dm\``
-                    );
-                }
-
-                settings.set('antidelete', { enabled: current.enabled, mode });
-
-                return m.reply(
-                    `✅ Anti-delete mode → *${modeLabel(mode)}*\n` +
-                    `Status: ${onOff(current.enabled)}\n\n` +
-                    `_Applies to groups and DMs._`
-                );
-            }
-
-            return m.reply(
-                `❌ *Unknown option* \`${action}\`\n\n` +
-                `Use \`${P}antidelete\` to see available commands.`
-            );
-        }
-
+         
 
 
         
@@ -2232,37 +2128,88 @@ case 'antidel': {
             break;
         }
 
+
         case 'autoreply':
-case 'autotype':
-case 'autorecord':
-case 'autorecordtype':
-case 'alwaysonline': {
-    if (!owner) return m.reply('⛔ Owner only.');
-    const map = {
-        autoreply: ['autoReply', 'AI auto-reply'],
-        autotype: ['autoType', 'Auto typing'],
-        autorecord: ['autoRecord', 'Auto recording'],
-        autorecordtype: ['autoRecordType', 'Auto recording + typing'],
-        alwaysonline: ['alwaysOnline', 'Always online'],
-    };
-    const [key, label] = map[cmd];
-    const v = parseSwitch(args[0]);
-    if (v === null) {
-        const extra = cmd === 'autoreply' ? '\nReplies in private chats, and in groups when the bot is @mentioned or replied to.' : '';
-        return m.reply(`${label}: *${settings.get(key, false) ? 'ON' : 'OFF'}*\nUse: ${P}${cmd} on | off${extra}`);
-    }
-    settings.set(key, v);
-    if (v && ['autoType', 'autoRecord', 'autoRecordType'].includes(key)) {
-        for (const other of ['autoType', 'autoRecord', 'autoRecordType']) if (other !== key) settings.set(other, false);
-    }
-    if (key === 'alwaysOnline') {
-        if (v) {
-            startAlwaysOnline(sock, settings);
-            sock.sendPresenceUpdate('available').catch(() => {});
-        } else sock.sendPresenceUpdate('unavailable').catch(() => {});
-    }
-    return m.reply(`✅ ${label}: *${v ? 'ON' : 'OFF'}*`);
-}
+        case 'autotype':
+        case 'autorecord':
+        case 'autorecordtype':
+        case 'alwaysonline': {
+            if (!owner) return m.reply('⛔ Owner only.');
+
+            const map = {
+                autoreply:      ['autoReply', 'AI auto-reply', '🤖'],
+                autotype:       ['autoType', 'Auto typing', '⌨️'],
+                autorecord:     ['autoRecord', 'Auto recording', '🎙️'],
+                autorecordtype: ['autoRecordType', 'Auto recording + typing', '🎬'],
+                alwaysonline:   ['alwaysOnline', 'Always online', '🟢'],
+            };
+            const [key, label, icon] = map[cmd];
+            const current = settings.get(key, false);
+            const raw = (args[0] || '').toLowerCase();
+
+            // Show status + help
+            if (!raw || raw === 'status' || raw === 'help') {
+                const extra = cmd === 'autoreply'
+                    ? '\n_Replies in private chats, and in groups when @mentioned or replied to._'
+                    : '';
+                return m.reply(
+                    `╭━━━〔 ${icon} *${label.toUpperCase()}* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  📌 Status : ${current ? '✅ ON' : '❌ OFF'}\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `*Usage:*\n` +
+                    `• \`${P}${cmd} on\`\n` +
+                    `• \`${P}${cmd} off\`` +
+                    extra + '\n\n' +
+                    `么 *SMILE PRIME MD* 么`
+                );
+            }
+
+            const v = parseSwitch(raw);
+            if (v === null) {
+                return m.reply(
+                    `❌ *Invalid value* \`${raw}\`\n\n` +
+                    `Use: \`${P}${cmd} on\` or \`${P}${cmd} off\``
+                );
+            }
+
+            settings.set(key, v);
+
+            // Mutual exclusion: only one of autoType/autoRecord/autoRecordType
+            // can be on at a time.
+            if (v && ['autoType', 'autoRecord', 'autoRecordType'].includes(key)) {
+                for (const other of ['autoType', 'autoRecord', 'autoRecordType']) {
+                    if (other !== key) settings.set(other, false);
+                }
+            }
+
+            if (key === 'alwaysOnline') {
+                if (v) {
+                    startAlwaysOnline(sock, settings);
+                    sock.sendPresenceUpdate('available').catch(() => {});
+                } else {
+                    sock.sendPresenceUpdate('unavailable').catch(() => {});
+                }
+            }
+
+            const excluded = v && ['autoType', 'autoRecord', 'autoRecordType'].includes(key)
+                ? `\n\n_Other presence modes disabled._`
+                : '';
+
+            return m.reply(
+                `╭━━━〔 ${icon} *${label.toUpperCase()}* 〕━━━╮\n` +
+                `┃\n` +
+                `┃  📌 Status : ${v ? '✅ ON' : '❌ OFF'}\n` +
+                `┃\n` +
+                `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                `么 *SMILE PRIME MD* 么${excluded}`
+            );
+        }
+                
+
+
+                
         case 'togcstatus':
         case 'togs': {
             if (!owner) return m.reply('⛔ Owner only.');
