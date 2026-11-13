@@ -1053,6 +1053,41 @@ async function handleCommand(m, { args, sock, session }) {
             }
         }
 
+            
+            case 'filter':
+case 'imgfilter': {
+    const filter = (args[0] || '').toLowerCase();
+    const valid = ['blur','sharpen','negate','sepia','tint','flip','flop','emboss','edge','oil'];
+    if (!valid.includes(filter)) {
+        return m.reply(`Usage: ${P}filter <type> [value]\nReply to an image.\nTypes: ${valid.join(', ')}`);
+    }
+    const quoted = await getQuotedMessage(m);
+    const imgMsg = quoted?.message?.imageMessage;
+    if (!imgMsg) return m.reply('Reply to an image with this command.');
+    await m.react('⏳');
+    try {
+        const sharp = require('sharp');
+        const buffer = await downloadMediaMessage({ message: { imageMessage: imgMsg }, key: quoted.key }, 'buffer', {});
+        let pipeline = sharp(buffer);
+        const val = parseInt(args[1], 10);
+        switch (filter) {
+            case 'blur':    pipeline = pipeline.blur(val || 5); break;
+            case 'sharpen': pipeline = pipeline.sharpen({ sigma: val || 2 }); break;
+            case 'negate':  pipeline = pipeline.negate(); break;
+            case 'sepia':   pipeline = pipeline.tint({ r: 112, g: 66, b: 20 }); break;
+            case 'tint':    pipeline = pipeline.tint(args[1] || '#ff0000'); break;
+            case 'flip':    pipeline = pipeline.flip(); break;
+            case 'flop':    pipeline = pipeline.flop(); break;
+            case 'emboss':  pipeline = pipeline.convolve({ width: 3, height: 3, kernel: [-2,-1,0,-1,1,1,0,1,2] }); break;
+            case 'edge':    pipeline = pipeline.convolve({ width: 3, height: 3, kernel: [-1,-1,-1,-1,8,-1,-1,-1,-1] }); break;
+            case 'oil':     pipeline = pipeline.median(3); break;
+        }
+        const out = await pipeline.jpeg({ quality: 92 }).toBuffer();
+        return m.send({ image: out, caption: `✅ Filter: *${filter}*` });
+    } catch (err) {
+        return m.reply(`❌ Filter failed: ${err.message}`);
+    }
+}
 
         case 'imagine':
         case 'dalle':
