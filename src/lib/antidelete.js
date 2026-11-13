@@ -94,9 +94,8 @@ async function rememberMessage(sock, sessionId, raw, settings) {
         const jid = raw.key?.remoteJid;
         const id = raw.key?.id;
 
-        if (!jid || !id || !raw.message || jid === 'status@broadcast' || jid.endsWith('@newsletter')) {
-            return;
-        }
+        if (!jid || !id || !raw.message) return;
+        if (jid === 'status@broadcast' || jid.endsWith('@newsletter')) return;
 
         const content = unwrapContent(raw.message);
         const kind = kindOf(raw.message);
@@ -150,6 +149,33 @@ function ownerJid(sock, settings) {
     return ownNumber ? `${ownNumber}@s.whatsapp.net` : null;
 }
 
+/**
+ * Resolves the original sender's phone-based JID for a message,
+ * handling groups (participant) AND DMs (remoteJid / fromMe).
+ */
+function resolveSenderJid(sock, rawKey, inGroup) {
+    const botId = sock.user?.id || '';
+
+    if (rawKey?.fromMe) {
+        // Sent by the bot / owner's own device
+        return {
+            author: botId,
+            authorPn: rawKey.participantAlt || botId
+        };
+    }
+
+    if (inGroup) {
+        const author = rawKey?.participant || '';
+        const authorPn = rawKey?.participantAlt || author;
+        return { author, authorPn };
+    }
+
+    // DM: the other person is the sender
+    const author = rawKey?.remoteJid || '';
+    const authorPn = rawKey?.remoteJidAlt || author;
+    return { author, authorPn };
+}
+
 async function handleRevoke(sock, sessionId, raw, settings) {
     try {
         const pm = raw.message?.protocolMessage;
@@ -158,31 +184,58 @@ async function handleRevoke(sock, sessionId, raw, settings) {
         const config = settings.get('antidelete', {});
         if (!config.enabled || !pm.key?.id) return true;
 
-        // Skip re-posting the bot's own deletes when mode is 'chat'
-        const originalFromMe = pm.key?.fromMe === true;
-        if (originalFromMe && config.mode === 'chat') return true;
-
         const chat = pm.key.remoteJid || raw.key.remoteJid;
         if (!chat) return true;
+
+        // Skip status + newsletter entirely
+        if (chat === 'status@broadcast' || chat.endsWith('@newsletter')) return true;
+
+        const inGroup = chat.endsWith('@g.us');
+
+        // In group mode 'chat', don't re-post the bot's own deletions (spammy).
+        // In DMs, always restore — user explicitly asked to see deleted messages.
+        const originalFromMe = pm.key?.fromMe === true;
+        if (originalFromMe && config.mode === 'chat' && inGroup) return true;
 
         const cache = cacheOf(sessionId);
         const key = `${chat}:${pm.key.id}`;
         const entry = cache.map.get(key);
+
         if (!entry) {
             log.warn('antidelete', `Deleted message not found in cache: ${pm.key.id}`);
+
+            // One-time hourly notice to owner (only in DM mode) so they
+            // know the feature is active but the message wasn't cached.
+            if (config.mode === 'dm') {
+                const now = Date.now();
+                if (!global.__adNotifyAt || now - global.__adNotifyAt > 3600000) {
+                    global.__adNotifyAt = now;
+                    const target = ownerJid(sock, settings);
+                    if (target) {
+                        await sock.sendMessage(target, {
+                            text:
+                                `⚠️ *Anti-delete: message not in cache*\n\n` +
+                                `A message was deleted before the bot could remember it.\n` +
+                                `_This happens for messages sent before enabling anti-delete._`
+                        }).catch(() => {});
+                    }
+                }
+            }
             return true;
         }
 
         drop(cache, key);
 
-        let target = config.mode === 'dm' ? ownerJid(sock, settings) : chat;
+        const target = config.mode === 'dm' ? ownerJid(sock, settings) : chat;
         if (!target) {
             log.warn('antidelete', 'Could not determine destination');
             return true;
         }
 
-        const author = entry.raw.key?.participant || entry.raw.key?.remoteJid || '';
-        let authorPn = entry.raw.key?.participantAlt || author;
+        // Resolve ORIGINAL sender (works in groups AND DMs)
+        const { author, authorPn: rawPn } = resolveSenderJid(sock, entry.raw.key, inGroup);
+        let authorPn = rawPn;
+
         try {
             if (authorPn && authorPn.endsWith('@lid')) {
                 const resolved = await pnOf(sock, authorPn);
@@ -190,12 +243,15 @@ async function handleRevoke(sock, sessionId, raw, settings) {
             }
         } catch {}
 
-        let where = chat.endsWith('@g.us') ? 'Group' : 'Private chat';
-        if (chat.endsWith('@g.us')) {
+        let where;
+        if (inGroup) {
+            where = 'Group';
             try {
                 const metadata = await sock.groupMetadata(chat);
                 where = metadata.subject || 'Group';
             } catch {}
+        } else {
+            where = `Private chat · ${numOf(chat)}`;
         }
 
         const validMention = typeof authorPn === 'string' && authorPn.endsWith('@s.whatsapp.net');
@@ -203,32 +259,38 @@ async function handleRevoke(sock, sessionId, raw, settings) {
         const senderLabel = validMention ? '@' + numOf(authorPn) : (numOf(author) || 'Unknown');
 
         const header =
-            `🗑️ *么 SMILE PRIME MD ANTI-DELETE 么*\n` +
-            `👤 Sender: ${senderLabel}\n` +
-            `💬 Chat: ${where}\n` +
-            `🕒 Time: ${new Date(entry.at).toLocaleTimeString()}`;
+            `╭━━━〔 🗑️ *ANTI-DELETE* 〕━━━╮\n` +
+            `┃\n` +
+            `┃  👤 Sender : ${senderLabel}\n` +
+            `┃  💬 Chat   : ${where}\n` +
+            `┃  🕒 Time   : ${new Date(entry.at).toLocaleTimeString()}\n` +
+            `┃\n` +
+            `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+            `么 *SMILE PRIME MD* 么`;
 
         const text = textOf(entry.content);
         const media = entry.media;
 
         if (!media) {
             await sock.sendMessage(target, {
-                text: `${header}\n\n${text || `[${entry.kind.replace('Message', '')}]`}`,
+                text: `${header}\n\n💬 *Message:*\n${text || `[${entry.kind.replace('Message', '')}]`}`,
                 mentions
             });
             return true;
         }
 
+        const captionWithHeader = `${header}${text ? '\n\n💬 *Caption:*\n' + text : ''}`;
+
         if (media.type === 'image') {
             await sock.sendMessage(target, {
                 image: media.buffer,
-                caption: `${header}${text ? '\n\n' + text : ''}`,
+                caption: captionWithHeader,
                 mentions
             });
         } else if (media.type === 'video') {
             await sock.sendMessage(target, {
                 video: media.buffer,
-                caption: `${header}${text ? '\n\n' + text : ''}`,
+                caption: captionWithHeader,
                 gifPlayback: media.gif,
                 mentions
             });
@@ -237,7 +299,7 @@ async function handleRevoke(sock, sessionId, raw, settings) {
                 document: media.buffer,
                 mimetype: media.mimetype || 'application/octet-stream',
                 fileName: media.fileName || 'deleted-file',
-                caption: header,
+                caption: captionWithHeader,
                 mentions
             });
         } else if (media.type === 'audio') {
