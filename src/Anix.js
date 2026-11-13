@@ -92,7 +92,7 @@ const BACKUP_KEYS = [
 ];
 
 const CHANGELOG = [
-    '• Rebranded to 么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃么',
+    '• Rebranded to 么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么',
     '• New default menu image',
     '• Numbered-reply menu, with a single Channel button on every page',
     '• Buy VIP bug shop removed',
@@ -383,7 +383,7 @@ function buildCategoryText(category, prefix) {
     });
     return [
         '╔═══━━━─── • ───━━━═══╗',
-        `     么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃么`,
+        `     么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么`,
         `       ⚜️『 ${category.name} MENU 』⚜️`,
         '╚═══━━━─── • ───━━━═══╝',
         '',
