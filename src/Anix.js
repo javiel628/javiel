@@ -1583,9 +1583,7 @@ case 'update': {
                 await m.reply(
             `╭━━━〔 ✅ *UPDATE COMPLETE* 〕━━━╮\n` +
             `┃\n` +
-            `┃  🌿 *Branch* : \`${branch}\`\n` +
-            `┃  📌 *Commit* : \`${commit.trim()}\`\n` +
-            `┃\n` +
+            `┃  🌿 *Branch* : \`${branch}\`\n` 
             `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
             `╭━━━〔 📜 *RECENT CHANGES* 〕━━━╮\n` +
             `┃\n` +
