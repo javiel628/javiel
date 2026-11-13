@@ -50,6 +50,7 @@ const {
     applyAudioEffect
 } = require('./lib/media');
 const { parseEmojiPair } = require('./lib/emoji-kitchen');
+const { rememberMessage, handleRevoke } = require('./lib/antidelete');
 
 
 
