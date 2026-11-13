@@ -86,6 +86,16 @@ function textOf(message) {
     );
 }
 
+/**
+ * Normalizes JID format so cache keys match between remember and revoke.
+ */
+function normalizeJid(jid) {
+    if (!jid) return jid;
+    return String(jid)
+        .replace(/@c\.us$/i, '@s.whatsapp.net')
+        .replace(/@s\.whatsapp\.net@s\.whatsapp\.net$/i, '@s.whatsapp.net');
+}
+
 async function rememberMessage(sock, sessionId, raw, settings) {
     try {
         const config = settings.get('antidelete', {});
@@ -102,7 +112,7 @@ async function rememberMessage(sock, sessionId, raw, settings) {
         if (!kind) return;
 
         const cache = cacheOf(sessionId);
-        const key = `${jid}:${id}`;
+        const key = `${normalizeJid(jid)}:${id}`;
         if (cache.map.has(key)) return;
 
         const entry = { raw, content, kind, at: Date.now() };
@@ -129,6 +139,7 @@ async function rememberMessage(sock, sessionId, raw, settings) {
         }
 
         cache.map.set(key, entry);
+        log.info('antidelete', `✅ cached ${kind} · ${key}`);
         evict(cache);
     } catch (err) {
         log.warn('antidelete', `Remember error: ${err.message}`);
@@ -149,15 +160,10 @@ function ownerJid(sock, settings) {
     return ownNumber ? `${ownNumber}@s.whatsapp.net` : null;
 }
 
-/**
- * Resolves the original sender's phone-based JID for a message,
- * handling groups (participant) AND DMs (remoteJid / fromMe).
- */
 function resolveSenderJid(sock, rawKey, inGroup) {
     const botId = sock.user?.id || '';
 
     if (rawKey?.fromMe) {
-        // Sent by the bot / owner's own device
         return {
             author: botId,
             authorPn: rawKey.participantAlt || botId
@@ -170,7 +176,6 @@ function resolveSenderJid(sock, rawKey, inGroup) {
         return { author, authorPn };
     }
 
-    // DM: the other person is the sender
     const author = rawKey?.remoteJid || '';
     const authorPn = rawKey?.remoteJidAlt || author;
     return { author, authorPn };
@@ -179,48 +184,28 @@ function resolveSenderJid(sock, rawKey, inGroup) {
 async function handleRevoke(sock, sessionId, raw, settings) {
     try {
         const pm = raw.message?.protocolMessage;
-        if (!pm || !(pm.type === 0 || pm.type === 'REVOKE')) return false;
+        if (!pm) return false;
+        if (!(pm.type === 0 || pm.type === 'REVOKE')) return false;
 
         const config = settings.get('antidelete', {});
-        if (!config.enabled || !pm.key?.id) return true;
+        if (!config.enabled) return true;
+        if (!pm.key?.id) return true;
 
         const chat = pm.key.remoteJid || raw.key.remoteJid;
         if (!chat) return true;
-
-        // Skip status + newsletter entirely
         if (chat === 'status@broadcast' || chat.endsWith('@newsletter')) return true;
 
         const inGroup = chat.endsWith('@g.us');
 
-        // In group mode 'chat', don't re-post the bot's own deletions (spammy).
-        // In DMs, always restore — user explicitly asked to see deleted messages.
         const originalFromMe = pm.key?.fromMe === true;
         if (originalFromMe && config.mode === 'chat' && inGroup) return true;
 
         const cache = cacheOf(sessionId);
-        const key = `${chat}:${pm.key.id}`;
+        const key = `${normalizeJid(chat)}:${pm.key.id}`;
         const entry = cache.map.get(key);
 
         if (!entry) {
-            log.warn('antidelete', `Deleted message not found in cache: ${pm.key.id}`);
-
-            // One-time hourly notice to owner (only in DM mode) so they
-            // know the feature is active but the message wasn't cached.
-            if (config.mode === 'dm') {
-                const now = Date.now();
-                if (!global.__adNotifyAt || now - global.__adNotifyAt > 3600000) {
-                    global.__adNotifyAt = now;
-                    const target = ownerJid(sock, settings);
-                    if (target) {
-                        await sock.sendMessage(target, {
-                            text:
-                                `⚠️ *Anti-delete: message not in cache*\n\n` +
-                                `A message was deleted before the bot could remember it.\n` +
-                                `_This happens for messages sent before enabling anti-delete._`
-                        }).catch(() => {});
-                    }
-                }
-            }
+            log.warn('antidelete', `revoke: not in cache (${pm.key.id})`);
             return true;
         }
 
@@ -228,11 +213,10 @@ async function handleRevoke(sock, sessionId, raw, settings) {
 
         const target = config.mode === 'dm' ? ownerJid(sock, settings) : chat;
         if (!target) {
-            log.warn('antidelete', 'Could not determine destination');
+            log.warn('antidelete', 'revoke: no target');
             return true;
         }
 
-        // Resolve ORIGINAL sender (works in groups AND DMs)
         const { author, authorPn: rawPn } = resolveSenderJid(sock, entry.raw.key, inGroup);
         let authorPn = rawPn;
 
@@ -272,46 +256,56 @@ async function handleRevoke(sock, sessionId, raw, settings) {
         const media = entry.media;
 
         if (!media) {
-            await sock.sendMessage(target, {
-                text: `${header}\n\n💬 *Message:*\n${text || `[${entry.kind.replace('Message', '')}]`}`,
-                mentions
-            });
+            try {
+                const sent = await sock.sendMessage(target, {
+                    text: `${header}\n\n💬 *Message:*\n${text || `[${entry.kind.replace('Message', '')}]`}`,
+                    mentions
+                });
+                log.info('antidelete', `✅ text restored → ${target} (${sent?.key?.id})`);
+            } catch (err) {
+                log.error('antidelete', `❌ text send failed: ${err.message}`);
+            }
             return true;
         }
 
         const captionWithHeader = `${header}${text ? '\n\n💬 *Caption:*\n' + text : ''}`;
 
-        if (media.type === 'image') {
-            await sock.sendMessage(target, {
-                image: media.buffer,
-                caption: captionWithHeader,
-                mentions
-            });
-        } else if (media.type === 'video') {
-            await sock.sendMessage(target, {
-                video: media.buffer,
-                caption: captionWithHeader,
-                gifPlayback: media.gif,
-                mentions
-            });
-        } else if (media.type === 'document') {
-            await sock.sendMessage(target, {
-                document: media.buffer,
-                mimetype: media.mimetype || 'application/octet-stream',
-                fileName: media.fileName || 'deleted-file',
-                caption: captionWithHeader,
-                mentions
-            });
-        } else if (media.type === 'audio') {
-            await sock.sendMessage(target, {
-                audio: media.buffer,
-                mimetype: media.mimetype || 'audio/mp4',
-                ptt: media.ptt
-            });
-            await sock.sendMessage(target, { text: header, mentions });
-        } else if (media.type === 'sticker') {
-            await sock.sendMessage(target, { sticker: media.buffer });
-            await sock.sendMessage(target, { text: header, mentions });
+        try {
+            if (media.type === 'image') {
+                await sock.sendMessage(target, {
+                    image: media.buffer,
+                    caption: captionWithHeader,
+                    mentions
+                });
+            } else if (media.type === 'video') {
+                await sock.sendMessage(target, {
+                    video: media.buffer,
+                    caption: captionWithHeader,
+                    gifPlayback: media.gif,
+                    mentions
+                });
+            } else if (media.type === 'document') {
+                await sock.sendMessage(target, {
+                    document: media.buffer,
+                    mimetype: media.mimetype || 'application/octet-stream',
+                    fileName: media.fileName || 'deleted-file',
+                    caption: captionWithHeader,
+                    mentions
+                });
+            } else if (media.type === 'audio') {
+                await sock.sendMessage(target, {
+                    audio: media.buffer,
+                    mimetype: media.mimetype || 'audio/mp4',
+                    ptt: media.ptt
+                });
+                await sock.sendMessage(target, { text: header, mentions });
+            } else if (media.type === 'sticker') {
+                await sock.sendMessage(target, { sticker: media.buffer });
+                await sock.sendMessage(target, { text: header, mentions });
+            }
+            log.info('antidelete', `✅ media (${media.type}) restored → ${target}`);
+        } catch (err) {
+            log.error('antidelete', `❌ media send failed: ${err.message}`);
         }
 
         return true;
