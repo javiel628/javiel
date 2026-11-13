@@ -30,6 +30,7 @@ const config = require('./config');
 const { handleMessages, onSessionOpen, handleCalls, handleGroupUpdate, handlePresence } = require('./Anix');
 const { createSessionSettings } = require('./lib/settings');
 const log = require('./lib/logger');
+const store = require('./lib/mongoStore');
 
 const AUTH_ROOT = path.join(process.cwd(), 'session');
 const DATA_ROOT = path.join(process.cwd(), 'data', 'sessions');
@@ -132,6 +133,7 @@ function wipeSessionFiles(sessionId) {
             log.warn(`session:${sessionId}`, `could not delete ${dir}: ${err.message}`);
         }
     }
+    store.forget(sessionId); // also remove it from MongoDB, otherwise it would come back on the next restart
 }
 
 /** True when auth files on disk belong to a number that finished pairing. creds.me alone is set as soon as a code is requested, so check creds.account (only written after WhatsApp confirms the link). */
