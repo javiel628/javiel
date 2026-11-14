@@ -1402,6 +1402,123 @@ async function handleCommand(m, { args, sock, session }) {
             }
         }
 
+
+
+
+        case 'editname':
+        case 'style':
+        case 'fancy':
+        case 'font': {
+            const text = args.join(' ').trim();
+            if (!text) {
+                return m.reply(
+                    `╭━━━〔 🎨 *STYLISH TEXT* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  Convert any text to stylish\n` +
+                    `┃  Unicode fonts for group names,\n` +
+                    `┃  bios, or messages.\n` +
+                    `┃\n` +
+                    `┃  📝 *Usage:*\n` +
+                    `┃  \`${P}style <text>\`\n` +
+                    `┃\n` +
+                    `┃  📌 *Example:*\n` +
+                    `┃  \`${P}style SMILE PRIME MD\`\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+                );
+            }
+            if (text.length > 60) return m.reply('❌ Text too long (max 60 chars).');
+
+            // Helper: brand font (么 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 style)
+            const brandFont = (t) => {
+                const map = {
+                    a:'𝚨', b:'𝚩', c:'𝐂', d:'𝚫', e:'𝚬', f:'𝚭', g:'𝚮', h:'𝚯', i:'𝚰',
+                    j:'𝚱', k:'𝚲', l:'𝚳', m:'𝚴', n:'𝚵', o:'𝚶', p:'𝚷', q:'𝚸', r:'𝚹',
+                    s:'𝚺', t:'𝚻', u:'𝚼', v:'𝚽', w:'𝚾', x:'𝚿', y:'𝛀', z:'𝛁',
+                    A:'𝚨', B:'𝚩', C:'𝐂', D:'𝚫', E:'𝚬', F:'𝚭', G:'𝚮', H:'𝚯', I:'𝚰',
+                    J:'𝚱', K:'𝚲', L:'𝚳', M:'𝚴', N:'𝚵', O:'𝚶', P:'𝚷', Q:'𝚸', R:'𝚹',
+                    S:'𝚺', T:'𝚻', U:'𝚼', V:'𝚽', W:'𝚾', X:'𝚿', Y:'𝛀', Z:'𝛁'
+                };
+                return t.split('').map(c => map[c] || c).join('');
+            };
+
+            // Unicode font maps
+            const fonts = {
+                '𝗕𝗼𝗹𝗱': {
+                    upper: '𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭',
+                    lower: '𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇',
+                    num: '𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵'
+                },
+                '𝘐𝘵𝘢𝘭𝘪𝘤': {
+                    upper: '𝘈𝘉𝘊𝘋𝘌𝘍𝘎𝘏𝘐𝘑𝘒𝘓𝘔𝘕𝘖𝘗𝘘𝘙𝘚𝘛𝘜𝘝𝘞𝘟𝘠𝘡',
+                    lower: '𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻',
+                    num: '1234567890'
+                },
+                '𝓢𝓬𝓻𝓲𝓹𝓽': {
+                    upper: '𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦ℒℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵',
+                    lower: '𝒶𝒷𝒸𝒹ℯ𝒻ℊ𝒽𝒾𝒿𝓀𝓁𝓂𝓃ℴ𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏',
+                    num: '𝟢𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫'
+                },
+                '𝔊𝔬𝔱𝔥𝔦𝔠': {
+                    upper: '𝔄𝔅ℭ𝔇𝔈𝔉𝔊ℌℑ𝔍𝔎𝔏𝔐𝔑𝔒𝔓𝔔ℜ𝔖𝔗𝔘𝔙𝔚𝔛𝔜ℨ',
+                    lower: '𝔞𝔟𝔠𝔡𝔢𝔣𝔤𝔥𝔦𝔧𝔨𝔩𝔪𝔫𝔬𝔭𝔮𝔯𝔰𝔱𝔲𝔳𝔴𝔵𝔶𝔷',
+                    num: '0123456789'
+                },
+                '𝕯𝖔𝖚𝖇𝖑𝖊': {
+                    upper: '𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ',
+                    lower: '𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫',
+                    num: '𝟘𝟙𝟚𝟛𝟜𝟝𝟞𝟟𝟠𝟡'
+                },
+                'ꜱᴍᴀʟʟᴄᴀᴘꜱ': {
+                    upper: 'ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘQʀꜱᴛᴜᴠᴡxʏᴢ',
+                    lower: 'ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘQʀꜱᴛᴜᴠᴡxʏᴢ',
+                    num: '0123456789'
+                },
+                'Ⓞⓤⓣⓛⓘⓝⓔ': {
+                    upper: 'ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ',
+                    lower: 'ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ',
+                    num: '⓪①②③④⑤⑥⑦⑧⑨'
+                }
+            };
+
+            const results = [];
+
+            // Add brand font first (么 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 style)
+            results.push(`┃ 么 𝚳𝚯𝐃𝐙      › 么 ${brandFont(text)} 么`);
+
+            // Add the standard fonts
+            for (const [name, map] of Object.entries(fonts)) {
+                const converted = text.split('').map(ch => {
+                    const u = map.upper.indexOf(ch);
+                    if (u !== -1) return map.upper[u];
+                    const l = map.lower.indexOf(ch);
+                    if (l !== -1) return map.lower[l];
+                    const n = map.num.indexOf(ch);
+                    if (n !== -1) return map.num[n];
+                    return ch;
+                }).join('');
+                results.push(`┃ ${name.padEnd(12)} › ${converted}`);
+            }
+
+            return m.reply(
+                `╭━━━〔 🎨 *STYLISH TEXT* 〕━━━╮\n` +
+                `┃\n` +
+                `┃  Original › ${text}\n` +
+                `┃\n` +
+                `┣━━━━━━━━━━━━━━━━━━━━━━━┫\n` +
+                results.join('\n') +
+                `\n┃\n` +
+                `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                `_Copy any style by long-pressing it._\n\n` +
+                `么 *SMILE PRIME MD* 么`
+            );
+        }
+
+
+
+
+                
         // ───────────────────────── utility ─────────────────────────
         case 'runtime':
         case 'uptime': {
