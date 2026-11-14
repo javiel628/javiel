@@ -1893,7 +1893,7 @@ _© ${botName(settings, config)}_
         }
 
 
- 'antidelete':
+            case 'antidelete':
 case 'antidel': {
     if (!owner) return m.reply('⛔ Owner only.');
 
