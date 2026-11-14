@@ -1433,6 +1433,95 @@ async function handleCommand(m, { args, sock, session }) {
             }
         }
 
+        case 'math':
+        case 'solve': {
+            const expr = args.join(' ').trim();
+            if (!expr) {
+                return m.reply(
+                    `╭━━━〔 🧮 *MATH SOLVER* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  Solve equations with steps.\n` +
+                    `┃\n` +
+                    `┃  📝 *Usage:*\n` +
+                    `┃  \`${P}math <equation>\`\n` +
+                    `┃\n` +
+                    `┃  📌 *Examples:*\n` +
+                    `┃  \`${P}math 2x+5=15\`\n` +
+                    `┃  \`${P}math integrate x^2 dx\`\n` +
+                    `┃  \`${P}math factor x^2-4\`\n` +
+                    `┃  \`${P}math simplify 3x+2x\`\n` +
+                    `┃  \`${P}math derive sin(x)\`\n` +
+                    `┃  \`${P}math 12*8\`\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+                );
+            }
+
+            // Simple arithmetic (no API call needed)
+            if (/^[\d\s+\-*/().%^]+$/.test(expr)) {
+                try {
+                    const safe = expr.replace(/\^/g, '**');
+                    // eslint-disable-next-line no-new-func
+                    const val = Function(`"use strict";return (${safe})`)();
+                    return m.reply(
+                        `╭━━━〔 🧮 *RESULT* 〕━━━╮\n` +
+                        `┃\n` +
+                        `┃  📥 Input  : \`${expr}\`\n` +
+                        `┃  📤 Answer : *${val}*\n` +
+                        `┃\n` +
+                        `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                        `么 *SMILE PRIME MD* 么`
+                    );
+                } catch {
+                    return m.reply('❌ Invalid expression.');
+                }
+            }
+
+            // Advanced math → Newton API
+            await m.react('🧮');
+            try {
+                let op = 'simplify';
+                let query = expr;
+
+                if (/^integrate\s+/i.test(expr))      { op = 'integrate'; query = expr.replace(/^integrate\s+/i, ''); }
+                else if (/^derive\s+/i.test(expr))    { op = 'derive';    query = expr.replace(/^derive\s+/i, ''); }
+                else if (/^factor\s+/i.test(expr))    { op = 'factor';    query = expr.replace(/^factor\s+/i, ''); }
+                else if (/^simplify\s+/i.test(expr))  { op = 'simplify';  query = expr.replace(/^simplify\s+/i, ''); }
+                else if (/^zeroes?\s+/i.test(expr))   { op = 'zeroes';    query = expr.replace(/^zeroes?\s+/i, ''); }
+                else if (/^area\s+/i.test(expr))      { op = 'area';      query = expr.replace(/^area\s+/i, ''); }
+                else if (/^cos\s+/i.test(expr))       { op = 'cos';       query = expr.replace(/^cos\s+/i, ''); }
+                else if (/^sin\s+/i.test(expr))       { op = 'sin';       query = expr.replace(/^sin\s+/i, ''); }
+                else if (/^tan\s+/i.test(expr))       { op = 'tan';       query = expr.replace(/^tan\s+/i, ''); }
+                else if (expr.includes('='))          { op = 'simplify'; }
+                else if (/[a-z]/i.test(expr))         { op = 'simplify'; }
+
+                const res = await fetch(`https://newton.now.sh/api/v2/${op}/${encodeURIComponent(query)}`);
+                if (!res.ok) return m.reply('❌ Could not solve that expression.');
+                const json = await res.json();
+
+                return m.reply(
+                    `╭━━━〔 🧮 *MATH SOLVER* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  🔍 Operation : ${op}\n` +
+                    `┃  📥 Input     : \`${query}\`\n` +
+                    `┃  📤 Answer    : *${json.result}*\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+                );
+            } catch (err) {
+                log.error('math', err.message);
+                return m.reply(`❌ Math solve failed: ${err.message}`);
+            }
+        }
+
+
+
+
+
+
+                
         case 'password': {
             const len = Math.min(Math.max(parseInt(args[0], 10) || 16, 6), 64);
             const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=';
