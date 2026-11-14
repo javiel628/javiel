@@ -1677,7 +1677,152 @@ async function handleCommand(m, { args, sock, session }) {
             }
         }
 
-            
+        case 'getcase':
+        case 'showsource':
+        case 'src': {
+            if (!owner) return m.reply('⛔ Owner only.');
+
+            const name = (args[0] || '').toLowerCase().trim();
+            if (!name) {
+                return m.reply(
+                    `╭━━━〔 📖 *GETCASE* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  View source code of any\n` +
+                    `┃  command directly here.\n` +
+                    `┃\n` +
+                    `┃  📝 *Usage:*\n` +
+                    `┃  \`${P}getcase <command>\`\n` +
+                    `┃\n` +
+                    `┃  📌 *Example:*\n` +
+                    `┃  \`${P}getcase sticker\`\n` +
+                    `┃  \`${P}getcase antidelete\`\n` +
+                    `┃  \`${P}getcase update\`\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+                );
+            }
+
+            // Search silently — file names are never disclosed
+            const candidates = [
+                path.join(process.cwd(), 'Anix.js'),
+                path.join(process.cwd(), 'anix.js'),
+                path.join(process.cwd(), 'index.js'),
+                path.join(process.cwd(), 'src', 'Anix.js'),
+                path.join(process.cwd(), 'src', 'anix.js'),
+                path.join(process.cwd(), 'src', 'index.js'),
+            ];
+
+            let sourceContent = null;
+            for (const f of candidates) {
+                if (fs.existsSync(f)) {
+                    const c = fs.readFileSync(f, 'utf8');
+                    if (c.includes(`case '${name}'`) || c.includes(`case "${name}"`)) {
+                        sourceContent = c;
+                        break;
+                    }
+                }
+            }
+
+            if (!sourceContent) {
+                return m.reply(
+                    `╭━━━〔 ❌ *NOT FOUND* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  No command named\n` +
+                    `┃  \`${name}\` exists.\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+                );
+            }
+
+            const lines = sourceContent.split('\n');
+
+            // Find the line with `case 'NAME':`
+            let startLine = -1;
+            for (let i = 0; i < lines.length; i++) {
+                const l = lines[i];
+                if (l.includes(`case '${name}':`) || l.includes(`case "${name}":`)) {
+                    startLine = i;
+                    break;
+                }
+            }
+
+            if (startLine === -1) {
+                return m.reply(
+                    `╭━━━〔 ❌ *NOT FOUND* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  No command named\n` +
+                    `┃  \`${name}\` exists.\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+                );
+            }
+
+            // Walk backwards to include chained cases (case 'a': case 'b':)
+            let chainStart = startLine;
+            while (chainStart > 0) {
+                const prev = lines[chainStart - 1].trim();
+                if (prev.startsWith(`case '`) || prev.startsWith(`case "`)) {
+                    chainStart--;
+                } else {
+                    break;
+                }
+            }
+
+            // Find matching closing brace
+            let braceCount = 0;
+            let opened = false;
+            let endLine = -1;
+
+            for (let i = chainStart; i < lines.length; i++) {
+                const l = lines[i];
+                for (const ch of l) {
+                    if (ch === '{') { braceCount++; opened = true; }
+                    else if (ch === '}') { braceCount--; }
+                }
+                if (opened && braceCount === 0) { endLine = i; break; }
+                if (!opened && i > chainStart && /^\s*case\s+['"]/.test(l)) {
+                    endLine = i - 1;
+                    break;
+                }
+                if (i - chainStart > 800) { endLine = i; break; }
+            }
+
+            if (endLine === -1) endLine = Math.min(chainStart + 200, lines.length - 1);
+
+            const snippet = lines.slice(chainStart, endLine + 1).join('\n');
+            const maxInline = 3500;
+
+            // Small → reply as text (no file names, no paths)
+            if (snippet.length <= maxInline) {
+                return m.reply(
+                    `╭━━━〔 📖 *${name.toUpperCase()}* 〕━━━╮\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `\`\`\`javascript\n${snippet}\n\`\`\`\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+                );
+            }
+
+            // Large → send as file (generic name, no original filename)
+            return m.send({
+                document: Buffer.from(snippet, 'utf8'),
+                fileName: `${name}.txt`,
+                mimetype: 'text/plain',
+                caption:
+                    `╭━━━〔 📖 *${name.toUpperCase()}* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  📏 ${endLine - chainStart + 1} lines\n` +
+                    `┃  🧾 ${(snippet.length / 1024).toFixed(1)} KB\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+            });
+        }
+
+
+                
 
 
 
