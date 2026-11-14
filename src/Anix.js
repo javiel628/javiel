@@ -323,6 +323,7 @@ async function loadMenuImage(settings) {
     return null;
 }
 
+
 function buildMainMenuText(settings) {
     const prefix = settings.get('prefix', config.prefix);
 
@@ -330,57 +331,41 @@ function buildMainMenuText(settings) {
         .replace(/^么\s*/, '')
         .replace(/\s*么$/, '');
 
-    const now = new Date();
-    const nairobiTime = now.toLocaleTimeString('en-US', {
-        hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Nairobi'
-    });
-    const nairobiDay = now.toLocaleString('en-US', {
-        weekday: 'long', timeZone: 'Africa/Nairobi'
-    });
-
-    const speed = Math.random() * 5 + 0.5;   // placeholder — replace with real speed if you have it
-    const mode = settings.get('public', true) ? 'public' : 'self';
-    const user = m?.pushName || 'User';       // if you have m in scope, pass it in
+    const totalCmds = SHADOW_MENU_CATEGORIES.reduce((s, c) => s + c.commands.length, 0);
 
     const categoryLines = SHADOW_MENU_CATEGORIES.map((c, i) => {
         const num = String(i + 1).padStart(2, '0');
-        return `┃✬│ ${num}  ${c.title}`;
+        return `┃ ${num}  ${c.title}  ·  ${c.commands.length}`;
     });
 
-    const totalCmds = SHADOW_MENU_CATEGORIES.reduce((s, c) => s + c.commands.length, 0);
-
     return [
-        `𝗛𝗲𝘆 𝘁𝗵𝗲𝗿𝗲😁`,
+        `╭═════〘 *${cleanBotName}* 〙═════╮`,
+        '┃✫╭═─────────────────═╮',
+        `┃✬│ Dev     : ${author}`,
+        `┃✫│ Prefix  : ${prefix || 'none'}`,
+        `┃✫│ Edition : PRIME`,
+        `┃✯│ Status  : ONLINE`,
+        `┃✬│ Cmds    : ${totalCmds}`,
+        '┃✫│═════════════════════',
+        `┃✬│ ${cleanBotName}`,
+        '┃✫│═════════════════════',
+        '╰══──────────────────══╯',
         '',
-        `╭═════〘 𝗦𝗠𝗜𝗟𝗘 𝗣𝗥𝗜𝗠𝗘 𝗠𝗗 〙═════╮`,
-        `┃✫╭═─────────────────═╮`,
-        `┃✬│ 𝗨𝘀𝗲𝗿 : ${user}`,
-        `┃✫│ 𝗣𝗿𝗲𝗳𝗶𝘅 : ${prefix || 'none'}`,
-        `┃✫│ 𝗠𝗼𝗱𝗲 : ${mode}`,
-        `┃✯│ 𝗦𝗽𝗲𝗲𝗱 : ${speed.toFixed(4)} 𝗠𝘀`,
-        `┃✬│ 𝗧𝗶𝗺𝗲 : ${nairobiTime} on ${nairobiDay}`,
-        `┃✫│ 𝗖𝗼𝗺𝗺𝗮𝗻𝗱𝘀 : ${totalCmds} total`,
-        `┃✫│═════════════════════`,
-        `┃✬│█▀██████▀█▀██▀███▄█▀█`,
-        `┃✫│═════════════════════`,
-        `╰══──────────────────══╯`,
-        '',
-        `●════ 〘 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦 〙═──═●`,
-        `╭══───────◇───────══╮`,
+        '●════ 〘 *CATEGORIES* 〙═──═●',
+        '╭══───────◇───────══╮',
         ...categoryLines,
-        `╰══───────◇───────══╯`,
+        '╰══───────◇───────══╯',
         '',
-        `●════ 〘 𝗛𝗢𝗪 𝗧𝗢 𝗨𝗦𝗘 〙═──═●`,
-        `╭══───────◇───────══╮`,
-        `┃✬│ Reply with a number (1–${SHADOW_MENU_CATEGORIES.length})`,
-        `┃✫│ Type 0 to close menu`,
-        `┃✬│ Example: ${prefix || ''}ping`,
-        `╰══───────◇───────══╯`,
+        '●════ 〘 *HOW TO USE* 〙═──═●',
+        '╭══───────◇───────══╮',
+        `┃ ✧ Reply with a number (1–${SHADOW_MENU_CATEGORIES.length})`,
+        '┃ ✧ Type 0 to close menu',
+        `┃ ✧ Example: ${prefix || ''}ping`,
+        '╰══───────◇───────══╯',
         '',
-        `么 𝗦𝗠𝗜𝗟𝗘 𝗣𝗥𝗜𝗠𝗘 𝗠𝗗 么`
+        '么 *𝐒𝚳𝚰𝐋𝚵 𝐌𝚯𝐃𝐙* 么'
     ].join('\n');
-}
-
+}        
 
 
 
