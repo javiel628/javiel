@@ -339,7 +339,7 @@ function buildMainMenuText(settings) {
     });
 
     return [
-        `╭═════〘 *${cleanBotName}* 〙═════╮`,
+        `╭═══〘 *${cleanBotName}* 〙═══╮`,
         '┃✫╭═─────────────────═╮',
         `┃✬│ Dev     : ${author}`,
         `┃✫│ Prefix  : ${prefix || 'none'}`,
