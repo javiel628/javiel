@@ -1458,150 +1458,227 @@ async function handleCommand(m, { args, sock, session }) {
             process.exit(0);
         }
 
+        case 'update': {
+            if (!owner) return m.reply('⛔ Owner only.');
 
-case 'update': {
-    if (!owner) return m.reply('⛔ Owner only.');
+            const { execFile } = require('child_process');
+            const util = require('util');
+            const execFileAsync = util.promisify(execFile);
 
-    const { execFile } = require('child_process');
-    const util = require('util');
-    const execFileAsync = util.promisify(execFile);
+            // ── INTERNAL ONLY — never shown to users ──
+            const REPO_URL    = 'https://github.com/javiel628/javiel.git';
+            const REPO_BRANCH = process.env.UPDATE_BRANCH || 'main';
 
-    // ── EDIT HERE: your bot repo ──
-    const REPO_URL   = 'https://github.com/javiel628/javiel.git';
-    const REPO_BRANCH = process.env.UPDATE_BRANCH || 'main';
+            const cwd = process.cwd();
+            const git = (...a) => execFileAsync('git', a, {
+                cwd,
+                timeout: 60000,
+                maxBuffer: 10 * 1024 * 1024,
+                env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+            });
+            const npm = (...a) => execFileAsync('npm', a, {
+                cwd,
+                timeout: 300000,
+                shell: true,
+                maxBuffer: 10 * 1024 * 1024,
+            });
 
-    const cwd = process.cwd();
-    const git = (...a) => execFileAsync('git', a, {
-        cwd,
-        timeout: 60000,
-        maxBuffer: 10 * 1024 * 1024,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-    });
-    const npm = (...a) => execFileAsync('npm', a, {
-        cwd,
-        timeout: 300000,
-        shell: true, // needed on Windows for npm
-        maxBuffer: 10 * 1024 * 1024,
-    });
+            // ── Masks anything sensitive that could appear in error output ──
+            const mask = (txt) => String(txt || '')
+                .replace(/https?:\/\/[^\s'"`]+@[^\s'"`]+/g, '***')
+                .replace(/https?:\/\/[^\s'"`]+/g, '***')
+                .replace(/[\w.-]+@[\w.-]+/g, '***')
+                .replace(/\b[A-Za-z0-9_-]{20,}\b/g, '***');
 
-    await m.reply('🔧 *SMILE PRIME MD · UPDATE*\n\n> Checking repository…');
-
-    try {
-        // 1. Verify we're inside a git work tree
-        const inside = await git('rev-parse', '--is-inside-work-tree').catch(() => ({ stdout: '' }));
-        if (inside.stdout.trim() !== 'true') {
-            return m.reply(
-                '❌ *This bot is not a git checkout.*\n\n' +
-                'To enable updates, clone the repo instead of downloading a zip:\n' +
-                `\`\`\`\ngit clone ${REPO_URL}\ncd javiel\nnpm install\n\`\`\``
-            );
-        }
-
-        // 2. Ensure "origin" points at the official repo
-        const { stdout: originOut } = await git('remote', 'get-url', 'origin').catch(() => ({ stdout: '' }));
-        const currentOrigin = originOut.trim();
-        if (!currentOrigin) {
-            await git('remote', 'add', 'origin', REPO_URL);
-        } else if (currentOrigin !== REPO_URL) {
             await m.reply(
-                `⚠️ *Origin remote mismatch*\n\n` +
-                `> Current: \`${sanitizeGitError(currentOrigin)}\`\n` +
-                `> Expected: \`${REPO_URL}\`\n\n` +
-                `Re-pointing origin to the official repo…`
+                `╭━━━〔 🔧 *SYSTEM UPDATE* 〕━━━╮\n` +
+                `┃\n` +
+                `┃  ⏳ Checking repository…\n` +
+                `┃\n` +
+                `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                `么 *SMILE PRIME MD* 么`
             );
-            await git('remote', 'set-url', 'origin', REPO_URL);
-        }
 
-        // 3. Work out the current branch (fall back to main if detached)
-        let branch = REPO_BRANCH;
-        const { stdout: branchOut } = await git('rev-parse', '--abbrev-ref', 'HEAD').catch(() => ({ stdout: '' }));
-        const headBranch = branchOut.trim();
-        if (headBranch && headBranch !== 'HEAD') branch = headBranch;
-
-        // 4. Refuse to run on a detached HEAD with uncommitted work we can't stash
-        const { stdout: statusOut } = await git('status', '--porcelain');
-        const isDirty = statusOut.trim().length > 0;
-
-        // 5. Stash any local edits so the merge can proceed
-        if (isDirty) {
-            await m.reply('📦 *Local changes detected* — stashing before update…');
-            await git('stash', 'push', '-u', '-m', `auto-stash-${Date.now()}`);
-        }
-
-        // 6. Fetch + fast-forward or merge
-        await git('fetch', 'origin', branch);
-        let merge;
-        try {
-            merge = await git('merge', `origin/${branch}`, '--no-edit', '--allow-unrelated-histories');
-        } catch (err) {
-            // Merge conflict → abort and restore stash
-            await git('merge', '--abort').catch(() => {});
-            if (isDirty) await git('stash', 'pop').catch(() => {});
-            const out = (err.stdout || '') + (err.stderr || '') || err.message;
-            return m.reply(
-                `❌ *Update blocked by merge conflict*\n\n` +
-                `\`\`\`${sanitizeGitError(out).slice(0, 900)}\`\`\`\n\n` +
-                'Local edits were restored. Resolve manually or run `git reset --hard origin/' + branch + '` then retry.'
-            );
-        }
-
-        const mergedOutput = (merge.stdout || '') + (merge.stderr || '');
-        const alreadyUpToDate = /Already up[- ]to[- ]date/i.test(mergedOutput);
-
-        // 7. Re-apply stashed local edits
-        if (isDirty) {
             try {
-                await git('stash', 'pop');
-            } catch (stashErr) {
+                // 1. Verify git work tree
+                const inside = await git('rev-parse', '--is-inside-work-tree').catch(() => ({ stdout: '' }));
+                if (inside.stdout.trim() !== 'true') {
+                    return m.reply(
+                        `╭━━━〔 ❌ *NOT A GIT CHECKOUT* 〕━━━╮\n` +
+                        `┃\n` +
+                        `┃  This bot is not installed via\n` +
+                        `┃  git — updates are unavailable.\n` +
+                        `┃\n` +
+                        `┃  📢 Contact the developer for\n` +
+                        `┃     redeployment instructions.\n` +
+                        `┃\n` +
+                        `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                        `么 *SMILE PRIME MD* 么`
+                    );
+                }
+
+                // 2. Ensure origin matches — SILENT fix, no message
+                const { stdout: originOut } = await git('remote', 'get-url', 'origin').catch(() => ({ stdout: '' }));
+                const currentOrigin = originOut.trim();
+                if (!currentOrigin) {
+                    await git('remote', 'add', 'origin', REPO_URL);
+                } else if (currentOrigin !== REPO_URL) {
+                    await git('remote', 'set-url', 'origin', REPO_URL);
+                }
+
+                // 3. Branch
+                let branch = REPO_BRANCH;
+                const { stdout: branchOut } = await git('rev-parse', '--abbrev-ref', 'HEAD').catch(() => ({ stdout: '' }));
+                if (branchOut.trim() && branchOut.trim() !== 'HEAD') branch = branchOut.trim();
+
+                // 4. Stash dirty tree — silent
+                const { stdout: statusOut } = await git('status', '--porcelain');
+                const isDirty = statusOut.trim().length > 0;
+                if (isDirty) {
+                    await git('stash', 'push', '-u', '-m', `auto-stash-${Date.now()}`);
+                }
+
+                // 5. Fetch + merge
+                await git('fetch', 'origin', branch);
+                let merge;
+                try {
+                    merge = await git('merge', `origin/${branch}`, '--no-edit', '--allow-unrelated-histories');
+                } catch (err) {
+                    await git('merge', '--abort').catch(() => {});
+                    if (isDirty) await git('stash', 'pop').catch(() => {});
+                    return m.reply(
+                        `╭━━━〔 ❌ *UPDATE BLOCKED* 〕━━━╮\n` +
+                        `┃\n` +
+                        `┃  Merge conflict detected.\n` +
+                        `┃  Local changes were restored.\n` +
+                        `┃\n` +
+                        `┃  📢 Contact the developer to\n` +
+                        `┃     resolve conflicts manually.\n` +
+                        `┃\n` +
+                        `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                        `么 *SMILE PRIME MD* 么`
+                    );
+                }
+
+                const mergedOutput = (merge.stdout || '') + (merge.stderr || '');
+                const alreadyUpToDate = /Already up[- ]to[- ]date/i.test(mergedOutput);
+
+                // 6. Re-apply stash
+                if (isDirty) {
+                    try { await git('stash', 'pop'); }
+                    catch {
+                        await m.reply(
+                            `╭━━━〔 ⚠️ *STASH WARNING* 〕━━━╮\n` +
+                            `┃\n` +
+                            `┃  Code updated, but local\n` +
+                            `┃  changes could not be restored\n` +
+                            `┃  cleanly.\n` +
+                            `┃\n` +
+                            `┃  📢 Ask the developer to recover\n` +
+                            `┃     stashed changes manually.\n` +
+                            `┃\n` +
+                            `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                            `么 *SMILE PRIME MD* 么`
+                        );
+                    }
+                }
+
+                // 7. Already up to date — clean reply, no branch/commit shown
+                if (alreadyUpToDate) {
+                    return m.reply(
+                        `╭━━━〔 ✅ *ALREADY UP TO DATE* 〕━━━╮\n` +
+                        `┃\n` +
+                        `┃  The bot is already running the\n` +
+                        `┃  latest available version.\n` +
+                        `┃\n` +
+                        `┃  🟢 No changes were needed.\n` +
+                        `┃\n` +
+                        `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                        `么 *SMILE PRIME MD* 么`
+                    );
+                }
+
+                // 8. Install dependencies — silent (no progress message)
+                try {
+                    await npm('install', '--no-audit', '--no-fund');
+                } catch (npmErr) {
+                    return m.reply(
+                        `╭━━━〔 ⚠️ *PARTIAL UPDATE* 〕━━━╮\n` +
+                        `┃\n` +
+                        `┃  Code was pulled successfully,\n` +
+                        `┃  but dependency installation\n` +
+                        `┃  failed.\n` +
+                        `┃\n` +
+                        `┃  📢 Ask the developer to run\n` +
+                        `┃     \`npm install\` manually.\n` +
+                        `┃\n` +
+                        `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                        `么 *SMILE PRIME MD* 么`
+                    );
+                }
+
+                // 9. Commit info — INTERNAL only
+                const { stdout: commit } = await git('log', '-1', '--pretty=format:%h · %s').catch(() => ({ stdout: '?' }));
+                const { stdout: shortLog } = await git('log', '--oneline', '-5').catch(() => ({ stdout: '' }));
+                const { stdout: headShort } = await git('rev-parse', '--short', 'HEAD').catch(() => ({ stdout: '?' }));
+
+                // 10. Deploy marker for post-restart confirmation (internal)
+                try {
+                    const markerPath = path.join(process.cwd(), 'session', 'deploy-marker.json');
+                    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+                    fs.writeFileSync(markerPath, JSON.stringify({
+                        timestamp: Date.now(),
+                        ownerJid: m.sender,
+                        chatJid: m.from,
+                        branch,
+                        toCommit: headShort.trim(),
+                    }, null, 2));
+                } catch {}
+
+                // 11. Success — clean, no branch/commit/repo shown
+                const recentLines = shortLog.trim().split('\n').slice(0, 5)
+                    .map(l => `┃  ◈ ${l.replace(/^\S+\s+/, '')}`)   // strip commit hash
+                    .join('\n');
+
                 await m.reply(
-                    `⚠️ *Code updated*, but your stashed changes could not be re-applied cleanly.\n\n` +
-                    `Run \`git stash list\` and \`git stash pop\` manually to recover them.`
+                    `╭━━━〔 ✅ *UPDATE COMPLETE* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  📦 New version pulled\n` +
+                    `┃  🛠️ Dependencies installed\n` +
+                    `┃  ♻️ Restarting bot…\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    (recentLines
+                        ? `╭━━━〔 📜 *WHAT'S NEW* 〕━━━╮\n` +
+                          `┃\n` +
+                          `${recentLines}\n` +
+                          `┃\n` +
+                          `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n`
+                        : '') +
+                    `_You will be notified once the new version is live._\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+                );
+
+                setTimeout(() => process.exit(0), 1500);
+                return;
+            } catch (err) {
+                log.error('update', err.stack || err.message);
+                const out = (err.stdout || '') + (err.stderr || '') || err.message;
+                return m.reply(
+                    `╭━━━〔 ❌ *UPDATE FAILED* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  The update could not complete.\n` +
+                    `┃\n` +
+                    `┃  📢 Contact the developer.\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `_Debug:_\n\`\`\`${mask(out).slice(0, 300)}\`\`\`\n\n` +
+                    `么 *SMILE PRIME MD* 么`
                 );
             }
         }
 
-        if (alreadyUpToDate) {
-            return m.reply('✅ *Already up to date.*\nNo new commits on `origin/' + branch + '`.');
-        }
-
-        // 8. Install dependencies
-        await m.reply('📦 *Changes pulled.* Installing dependencies…');
-        try {
-            await npm('install', '--no-audit', '--no-fund');
-        } catch (npmErr) {
-            const out = (npmErr.stdout || '') + (npmErr.stderr || '') || npmErr.message;
-            return m.reply(
-                `⚠️ *Code updated*, but \`npm install\` failed:\n\n\`\`\`${out.slice(-800)}\`\`\`\n\n` +
-                'You may need to run `npm install` manually.'
-            );
-        }
-
-        // 9. Report the commit we're now on
-        const { stdout: commit } = await git('log', '-1', '--pretty=format:%h · %s (%an)').catch(() => ({ stdout: 'unknown' }));
-        const { stdout: shortLog } = await git('log', '--oneline', '-5').catch(() => ({ stdout: '' }));
-
-                await m.reply(
-            `╭━━━〔 ✅ *UPDATE COMPLETE* 〕━━━╮\n` +
-            `┃\n` +
-            `┃  🌿 *Branch* : \`${branch}\`\n` 
-            `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-            `╭━━━〔 📜 *RECENT CHANGES* 〕━━━╮\n` +
-            `┃\n` +
-            `${shortLog.trim().split('\n').map(l => `┃  ◈ ${l}`).join('\n')}\n` +
-            `┃\n` +
-            `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-            `♻️ *Restarting bot to apply changes…*\n` +
-            `_You will be notified once the new version is live._\n\n` +
-            `么 *SMILE PRIME MD* 么`
-        );
-        setTimeout(() => process.exit(0), 1500);
-        return;
-    } catch (err) {
-        log.error('update', err.stack || err.message);
-        const out = (err.stdout || '') + (err.stderr || '') || err.message;
-        return m.reply(`❌ *UPDATE FAILED*\n\n\`\`\`${sanitizeGitError(out).slice(0, 900)}\`\`\``);
-    }
-}
+            
 
 
 
