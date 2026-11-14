@@ -19,10 +19,13 @@ const {
     isConnected,
     listSavedSessionIds,
     getAllSessions,
+    sendToSelf,
 } = require('./session');
 const log = require('./lib/logger');
 const { printBox } = require('./lib/console');
 const store = require('./lib/mongoStore');
+const accounts = require('./lib/accounts');
+const crypto = require('crypto');
 
 const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.PAIR_API_KEY || '';
@@ -118,8 +121,9 @@ function limited(ip) {
     return list.length > 8;
 }
 
-function send(res, status, body) {
+function send(res, status, body, extra = {}) {
     res.writeHead(status, {
+        ...extra,
         'Content-Type': 'application/json; charset=utf-8',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'content-type, x-api-key',
@@ -153,6 +157,100 @@ function connectedCount() {
     return n;
 }
 
+// ── accounts: sign up with a phone number, then link that one number ──────────
+const claims = new Map(); // number -> { code, until, tries } (proves ownership of an already-linked number)
+
+function cookieOf(req, name) {
+    const hit = String(req.headers.cookie || '').split(/;\s*/).find((c) => c.startsWith(name + '='));
+    return hit ? decodeURIComponent(hit.slice(name.length + 1)) : '';
+}
+function sessionCookie(req, value, maxAge) {
+    const secure = String(req.headers['x-forwarded-proto'] || '').includes('https') ? '; Secure' : '';
+    return { 'Set-Cookie': `sid=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}` };
+}
+
+async function handleApi(req, res, url) {
+    const p = url.pathname;
+    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+    if (req.method !== 'GET') {
+        try {
+            const o = req.headers.origin;
+            if (o && new URL(o).host !== req.headers.host) return send(res, 403, { error: 'Blocked.' });
+        } catch {
+            return send(res, 403, { error: 'Blocked.' });
+        }
+    }
+    if (!store.isReady()) return send(res, 503, { error: 'The bot is starting up. Try again in a minute.' });
+
+    const me = accounts.fromToken(cookieOf(req, 'sid'));
+    const post = req.method === 'POST';
+
+    if (p === '/api/register' && post) {
+        if (limited('auth:' + ip)) return send(res, 429, { error: 'Too many attempts. Wait a few minutes.' });
+        const b = await readBody(req);
+        const number = cleanNumber(b.number);
+        const password = String(b.password || '');
+        if (!validNumber(number)) return send(res, 400, { error: 'Enter your full number with country code.' });
+        if (password.length < 8 || password.length > 100) return send(res, 400, { error: 'Password must be at least 8 characters.' });
+        if (accounts.exists(number) && isPaired(number)) return send(res, 409, { error: 'This number already has an account. Log in instead.' });
+        if (isPaired(number)) {
+            // linked before accounts existed: prove it is really you via a code sent inside that WhatsApp
+            const c = claims.get(number);
+            if (!b.code) {
+                if (!isConnected(number)) return send(res, 409, { error: 'This number is linked but offline. Try again in a minute.' });
+                const code = String(crypto.randomInt(100000, 1000000));
+                claims.set(number, { code, until: Date.now() + 10 * 60 * 1000, tries: 0 });
+                try {
+                    await sendToSelf(number, `Your account verification code: ${code}`);
+                } catch {
+                    return send(res, 502, { error: 'Could not send the code to WhatsApp. Try again.' });
+                }
+                return send(res, 200, { status: 'verify' });
+            }
+            if (!c || c.until < Date.now() || ++c.tries > 5 || c.code !== String(b.code).trim()) {
+                return send(res, 400, { error: 'Wrong or expired code.' });
+            }
+            claims.delete(number);
+        }
+        // an account whose number was never linked can be re-registered, so nobody can squat your number
+        await accounts.create(number, password);
+        return send(res, 200, { ok: true }, sessionCookie(req, accounts.token(number), accounts.MAX_AGE));
+    }
+
+    if (p === '/api/login' && post) {
+        if (limited('auth:' + ip)) return send(res, 429, { error: 'Too many attempts. Wait a few minutes.' });
+        const b = await readBody(req);
+        const number = cleanNumber(b.number);
+        if (!(await accounts.verify(number, String(b.password || '')))) return send(res, 401, { error: 'Wrong number or password.' });
+        return send(res, 200, { ok: true }, sessionCookie(req, accounts.token(number), accounts.MAX_AGE));
+    }
+
+    if (p === '/api/logout' && post) return send(res, 200, { ok: true }, sessionCookie(req, '', 0));
+
+    if (!me) return send(res, 401, { error: 'Please log in.' });
+
+    if (p === '/api/me') {
+        return send(res, 200, { number: me, linked: isPaired(me), connected: isConnected(me), waiting: pending.has(me) });
+    }
+
+    if (p === '/api/link' && post) {
+        if (limited('link:' + ip)) return send(res, 429, { error: 'Too many requests. Wait a few minutes.' });
+        try {
+            return send(res, 200, await requestCode(me)); // always the account's own number
+        } catch (err) {
+            log.warn('pair', `${me}: ${err.message}`);
+            return send(res, 502, { error: err.message });
+        }
+    }
+
+    if (p === '/api/unlink' && post) {
+        await removeSession(me);
+        return send(res, 200, { ok: true });
+    }
+
+    return send(res, 404, { error: 'Not found' });
+}
+
 const server = http.createServer(async (req, res) => {
     try {
         const url = new URL(req.url, 'http://localhost');
@@ -178,10 +276,12 @@ const server = http.createServer(async (req, res) => {
             });
         }
 
+        if (url.pathname.startsWith('/api/')) return handleApi(req, res, url);
+
         const protectedRoute = url.pathname === '/pair' || url.pathname === '/status';
         // the built-in website (same address) needs no key; other websites must send PAIR_API_KEY
         const sameSite = req.headers['sec-fetch-site'] === 'same-origin';
-        if (protectedRoute && API_KEY && !sameSite && req.headers['x-api-key'] !== API_KEY) {
+        if (protectedRoute && (!API_KEY || req.headers['x-api-key'] !== API_KEY)) { // public number-entry pairing is closed: users link through their account
             return send(res, 401, { error: 'Not allowed' });
         }
 
