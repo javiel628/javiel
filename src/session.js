@@ -19,6 +19,7 @@
 */
 const fs = require('fs');
 const path = require('path');
+const packageJson = require('../package.json');
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -27,7 +28,6 @@ const {
 } = require('./lib/baileys');
 const pino = require('pino');
 const config = require('./config');
-const { handleMessages, onSessionOpen, handleCalls, handleGroupUpdate, handlePresence } = require('./Anix');
 const { createSessionSettings } = require('./lib/settings');
 const log = require('./lib/logger');
 const store = require('./lib/mongoStore');
@@ -68,6 +68,8 @@ A new number just linked to *么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 么*.
 
 // sessionId -> { sock, settings, stopping, wiped }
 const activeSessions = new Map();
+const sessionOptions = new Map();
+const updateJobs = new Map();
 const generations = new Map(); // sessionId -> counter, bumped by removeSession() to cancel in-flight starts/retries
 const retries = new Map(); // sessionId -> consecutive failed reconnects
 const timers = new Map(); // sessionId -> pending reconnect timer
@@ -123,6 +125,48 @@ setInterval(() => {
 const safeId = (id) => String(id).replace(/[^a-zA-Z0-9_-]/g, '');
 const authDir = (id) => path.join(AUTH_ROOT, safeId(id));
 const dataDir = (id) => path.join(DATA_ROOT, safeId(id));
+const runtimeRoot = (id) => path.join(authDir(id), '.runtime');
+const runtimeMeta = (id) => path.join(authDir(id), '.runtime-version.json');
+const CURRENT_BOT_VERSION = String(packageJson.version || '1.0.0');
+
+function safeVersion(version) {
+    return String(version || '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'unknown';
+}
+
+/** Each WhatsApp account loads its own copy of src/, so a feature release can be
+ * installed for one number without changing the modules used by other numbers.
+ * node_modules remain shared by the host; bump package.json only for compatible deps. */
+function installRuntimeSnapshot(sessionId, version = CURRENT_BOT_VERSION) {
+    const safe = safeVersion(version);
+    const destination = path.join(runtimeRoot(sessionId), safe, 'src');
+    const source = path.join(process.cwd(), 'src');
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    const temp = `${destination}.tmp-${process.pid}`;
+    fs.rmSync(temp, { recursive: true, force: true });
+    fs.cpSync(source, temp, { recursive: true, filter: (src) => !src.includes(`${path.sep}node_modules${path.sep}`) });
+    fs.rmSync(destination, { recursive: true, force: true });
+    fs.renameSync(temp, destination);
+    const metaTemp = `${runtimeMeta(sessionId)}.tmp`;
+    fs.writeFileSync(metaTemp, JSON.stringify({ version: safe, updatedAt: new Date().toISOString() }, null, 2));
+    fs.renameSync(metaTemp, runtimeMeta(sessionId));
+    return { version: safe, srcDir: destination };
+}
+
+function getRuntimeInfo(sessionId) {
+    try {
+        const meta = JSON.parse(fs.readFileSync(runtimeMeta(sessionId), 'utf8'));
+        const version = safeVersion(meta.version);
+        const srcDir = path.join(runtimeRoot(sessionId), version, 'src');
+        if (fs.existsSync(path.join(srcDir, 'Anix.js'))) return { version, srcDir };
+    } catch { /* install the current baseline below */ }
+    return installRuntimeSnapshot(sessionId, CURRENT_BOT_VERSION);
+}
+
+function loadRuntimeHandlers(sessionId) {
+    const runtime = getRuntimeInfo(sessionId);
+    const entry = require(path.join(runtime.srcDir, 'Anix.js'));
+    return { ...entry, runtimeVersion: runtime.version };
+}
 
 /** Deletes everything stored for a session: WhatsApp auth + per-session settings. */
 function wipeSessionFiles(sessionId) {
@@ -205,6 +249,7 @@ function fire(tag, fn, ...args) {
  *   onReplaced()              - the same login was opened elsewhere again and again; this copy stopped (files kept)
  */
 async function startSession(sessionId, opts = {}) {
+    sessionOptions.set(sessionId, opts);
     const { restored, pairingNumber, customPairingCode, onPairingCode, onPairingError, onPairingFailed, onConnected, onDisconnected, onLoggedOut, onReplaced } = opts;
     const tag = `session:${sessionId}`;
 
@@ -227,6 +272,7 @@ async function startSession(sessionId, opts = {}) {
     if (generations.get(sessionId) !== gen) return null; // removed while we were awaiting
 
     const settings = createSessionSettings(sessionId, config.prefix);
+    const handlers = loadRuntimeHandlers(sessionId);
     // a session restored from disk was connected before: never re-announce "connected successfully"
     if (restored && !settings.get('notifiedConnected')) settings.set('notifiedConnected', true);
 
@@ -363,18 +409,18 @@ async function startSession(sessionId, opts = {}) {
                 }
             }
 
-            Promise.resolve(onSessionOpen(sock, { sessionId, settings })).catch((e) => log.warn(tag, `post-connect tasks failed: ${e.message}`));
+            Promise.resolve(handlers.onSessionOpen(sock, { sessionId, settings })).catch((e) => log.warn(tag, `post-connect tasks failed: ${e.message}`));
         }
     });
 
     sock.ev.on('group-participants.update', (update) => {
         if (entry.stopping || entry.wiped) return;
-        Promise.resolve(handleGroupUpdate(sock, update, { sessionId, settings })).catch((e) => log.warn(tag, `welcome handler: ${e.message}`));
+        Promise.resolve(handlers.handleGroupUpdate(sock, update, { sessionId, settings })).catch((e) => log.warn(tag, `welcome handler: ${e.message}`));
     });
 
     sock.ev.on('presence.update', (update) => {
         try {
-            handlePresence(sock, update);
+            handlers.handlePresence(sock, update);
         } catch {
             /* presence is best-effort */
         }
@@ -382,12 +428,12 @@ async function startSession(sessionId, opts = {}) {
 
     sock.ev.on('call', (calls) => {
         if (entry.stopping || entry.wiped) return;
-        Promise.resolve(handleCalls(sock, calls, { sessionId, settings })).catch((e) => log.warn(tag, `call handler: ${e.message}`));
+        Promise.resolve(handlers.handleCalls(sock, calls, { sessionId, settings })).catch((e) => log.warn(tag, `call handler: ${e.message}`));
     });
 
     sock.ev.on('messages.upsert', (upsert) => {
         if (entry.stopping || entry.wiped) return;
-        handleMessages(sock, upsert, { sessionId, settings });
+        handlers.handleMessages(sock, upsert, { sessionId, settings });
     });
 
     return sock;
@@ -424,6 +470,40 @@ function getSession(sessionId) {
     return activeSessions.get(sessionId);
 }
 
+function getSessionUpdateStatus(sessionId) {
+    const runtime = getRuntimeInfo(sessionId);
+    return {
+        currentVersion: CURRENT_BOT_VERSION,
+        installedVersion: runtime.version,
+        updateAvailable: runtime.version !== safeVersion(CURRENT_BOT_VERSION),
+        connected: isConnected(sessionId),
+        running: isRunning(sessionId),
+        updating: updateJobs.has(sessionId),
+    };
+}
+
+/** Installs the currently deployed src/ snapshot for this number only, then
+ * recreates only its WhatsApp socket using the same saved auth credentials. */
+async function updateSession(sessionId) {
+    if (!isPaired(sessionId)) throw new Error('This WhatsApp number is not paired.');
+    if (updateJobs.has(sessionId)) return updateJobs.get(sessionId);
+    const job = (async () => {
+        const before = getRuntimeInfo(sessionId);
+        if (before.version === safeVersion(CURRENT_BOT_VERSION)) {
+            return { updated: false, version: before.version, message: 'Your bot is already up to date.' };
+        }
+        installRuntimeSnapshot(sessionId, CURRENT_BOT_VERSION);
+        const opts = sessionOptions.get(sessionId) || { restored: true };
+        clearTimeout(timers.get(sessionId));
+        timers.delete(sessionId);
+        await startSession(sessionId, { ...opts, restored: true });
+        return { updated: true, version: safeVersion(CURRENT_BOT_VERSION), message: 'Your bot update was installed.' };
+    })();
+    updateJobs.set(sessionId, job);
+    try { return await job; }
+    finally { updateJobs.delete(sessionId); }
+}
+
 function getAllSessions() {
     return activeSessions;
 }
@@ -440,4 +520,6 @@ module.exports = {
     listSavedSessionIds,
     sendToSelf,
     wipeSessionFiles,
+    getSessionUpdateStatus,
+    updateSession,
 };
