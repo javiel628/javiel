@@ -23,6 +23,7 @@ const {
 const log = require('./lib/logger');
 const { printBox } = require('./lib/console');
 const store = require('./lib/mongoStore');
+const accounts = require('./lib/accounts');
 
 const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.PAIR_API_KEY || '';
@@ -118,15 +119,45 @@ function limited(ip) {
     return list.length > 8;
 }
 
-function send(res, status, body) {
+function send(res, status, body, extraHeaders = {}) {
     res.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'content-type, x-api-key',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Cache-Control': 'no-store',
+        ...extraHeaders,
     });
     res.end(JSON.stringify(body));
+}
+
+const COOKIE_NAME = 'smile_session';
+function readCookie(req, name) {
+    const header = String(req.headers.cookie || '');
+    for (const part of header.split(';')) {
+        const i = part.indexOf('=');
+        if (i < 0) continue;
+        if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+    }
+    return '';
+}
+function accountNumber(req) {
+    return accounts.fromToken(readCookie(req, COOKIE_NAME));
+}
+function cookieOptions(req) {
+    const secure = req.socket.encrypted || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
+    return `Path=/; HttpOnly; SameSite=Lax; Max-Age=${accounts.MAX_AGE}${secure ? '; Secure' : ''}`;
+}
+function authIp(req) {
+    return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+}
+const authHits = new Map();
+function authLimited(req) {
+    const ip = authIp(req), now = Date.now();
+    const recent = (authHits.get(ip) || []).filter((t) => now - t < 10 * 60 * 1000);
+    recent.push(now);
+    authHits.set(ip, recent);
+    return recent.length > 20;
 }
 
 function readBody(req) {
@@ -176,6 +207,68 @@ const server = http.createServer(async (req, res) => {
                 online: connectedCount(),
                 linked: listSavedSessionIds().length,
             });
+        }
+
+        // ── Website accounts: one permanent account per WhatsApp number ──
+        if (url.pathname === '/api/register' && req.method === 'POST') {
+            if (authLimited(req)) return send(res, 429, { error: 'Too many attempts. Please wait 10 minutes.' });
+            const body = await readBody(req);
+            const number = cleanNumber(body.number);
+            const password = String(body.password || '');
+            if (!validNumber(number)) return send(res, 400, { error: 'Enter a valid WhatsApp number with country code.' });
+            if (password.length < 8 || password.length > 128) return send(res, 400, { error: 'Password must be between 8 and 128 characters.' });
+            if (accounts.exists(number)) return send(res, 409, { error: 'An account already exists for this WhatsApp number. Please log in.' });
+            const created = await accounts.create(number, password);
+            if (!created) return send(res, 409, { error: 'An account already exists for this WhatsApp number. Please log in.' });
+            return send(res, 201, { ok: true }, { 'Set-Cookie': `${COOKIE_NAME}=${encodeURIComponent(accounts.token(number))}; ${cookieOptions(req)}` });
+        }
+
+        if (url.pathname === '/api/login' && req.method === 'POST') {
+            if (authLimited(req)) return send(res, 429, { error: 'Too many attempts. Please wait 10 minutes.' });
+            const body = await readBody(req);
+            const number = cleanNumber(body.number);
+            const password = String(body.password || '');
+            if (!validNumber(number) || password.length > 128 || !(await accounts.verify(number, password))) {
+                return send(res, 401, { error: 'Incorrect WhatsApp number or password.' });
+            }
+            return send(res, 200, { ok: true }, { 'Set-Cookie': `${COOKIE_NAME}=${encodeURIComponent(accounts.token(number))}; ${cookieOptions(req)}` });
+        }
+
+        if (url.pathname === '/api/me' && req.method === 'GET') {
+            const number = accountNumber(req);
+            if (!number) return send(res, 401, { error: 'Please log in.' });
+            return send(res, 200, {
+                number,
+                linked: isPaired(number),
+                connected: isConnected(number),
+                waiting: pending.has(number),
+            });
+        }
+
+        if (url.pathname === '/api/logout' && req.method === 'POST') {
+            return send(res, 200, { ok: true }, { 'Set-Cookie': `${COOKIE_NAME}=; ${cookieOptions(req)}; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT` });
+        }
+
+        if (url.pathname === '/api/link' && req.method === 'POST') {
+            const number = accountNumber(req);
+            if (!number) return send(res, 401, { error: 'Please log in again.' });
+            if (!store.isReady()) return send(res, 503, { error: 'The bot is starting up. Try again in a minute.' });
+            try {
+                return send(res, 200, await requestCode(number));
+            } catch (err) {
+                return send(res, 502, { error: err.message });
+            }
+        }
+
+        if (url.pathname === '/api/unlink' && req.method === 'POST') {
+            const number = accountNumber(req);
+            if (!number) return send(res, 401, { error: 'Please log in again.' });
+            stoppedOnPurpose.add(number);
+            downSince.delete(number);
+            pending.delete(number);
+            await removeSession(number);
+            store.forget(number);
+            return send(res, 200, { ok: true });
         }
 
         const protectedRoute = url.pathname === '/pair' || url.pathname === '/status';
