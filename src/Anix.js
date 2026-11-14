@@ -1892,75 +1892,113 @@ _© ${botName(settings, config)}_
             return m.reply(a === 'off' ? '✅ Anti-call *OFF*.' : `✅ Anti-call *${a.toUpperCase()}* — ${a === 'hang' ? 'calls are rejected' : 'callers are rejected and blocked'} (owner and sudo are never affected).`);
         }
 
+        case 'antidelete':
+        case 'antidel': {
+            if (!owner) return m.reply('⛔ Owner only.');
 
-            case 'antidelete':
-case 'antidel': {
-    if (!owner) return m.reply('⛔ Owner only.');
+            const action  = (args[0] || '').toLowerCase();
+            const modeArg = (args[1] || '').toLowerCase();
+            const current = settings.get('antidelete', { enabled: false, mode: 'chat' });
+            const modeLabel = (x) => (x === 'dm' ? 'Owner DM' : 'Same Chat');
+            const onOff = (v) => (v ? '✅ ON' : '❌ OFF');
 
-    const action  = (args[0] || '').toLowerCase();
-    const modeArg = (args[1] || '').toLowerCase();
-    const current = settings.get('antidelete', { enabled: false, mode: 'chat' });
-    const modeLabel = (x) => (x === 'dm' ? 'Owner DM' : 'Same Chat');
-    const onOff = (v) => (v ? '✅ ON' : '❌ OFF');
+            if (!action || action === 'status') {
+                return m.reply(
+                    `╭━━━〔 🛡️ *ANTI-DELETE* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  📌 Status : ${onOff(current.enabled)}\n` +
+                    `┃  🎯 Mode   : *${modeLabel(current.mode)}*\n` +
+                    `┃  🌍 Scope  : Groups + Private DMs\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `╭━━━〔 📖 *COMMANDS* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  ◈ ${P}antidelete on\n` +
+                    `┃      → turn ON (keeps mode)\n` +
+                    `┃\n` +
+                    `┃  ◈ ${P}antidelete off\n` +
+                    `┃      → turn OFF\n` +
+                    `┃\n` +
+                    `┃  ◈ ${P}antidelete on chat\n` +
+                    `┃      → ON · restore in original chat\n` +
+                    `┃\n` +
+                    `┃  ◈ ${P}antidelete on dm\n` +
+                    `┃      → ON · forward to owner DM\n` +
+                    `┃\n` +
+                    `┃  ◈ ${P}antidelete mode chat\n` +
+                    `┃      → switch to same-chat restore\n` +
+                    `┃\n` +
+                    `┃  ◈ ${P}antidelete mode dm\n` +
+                    `┃      → switch to owner-DM forward\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+                );
+            }
 
-    // ─── Status (no args) ───
-    if (!action || action === 'status') {
-        return m.reply(
-            `╭━━━〔 🛡️ *ANTI-DELETE* 〕━━━╮\n` +
-            `┃\n` +
-            `┃  📌 Status : ${onOff(current.enabled)}\n` +
-            `┃  🎯 Mode   : *${modeLabel(current.mode)}*\n` +
-            `┃  🌍 Scope  : Groups + Private DMs\n` +
-            `┃\n` +
-            `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-            `╭━━━〔 📖 *COMMANDS* 〕━━━╮\n` +
-            `┃\n` +
-            `┃  ◈ ${P}antidelete on\n` +
-            `┃      → turn ON (keeps mode)\n` +
-            `┃\n` +
-            `┃  ◈ ${P}antidelete off\n` +
-            `┃      → turn OFF\n` +
-            `┃\n` +
-            `┃  ◈ ${P}antidelete on chat\n` +
-            `┃      → ON · restore in original chat\n` +
-            `┃\n` +
-            `┃  ◈ ${P}antidelete on dm\n` +
-            `┃      → ON · forward to owner DM\n` +
-            `┃\n` +
-            `┃  ◈ ${P}antidelete mode chat\n` +
-            `┃      → switch to same-chat restore\n` +
-            `┃\n` +
-            `┃  ◈ ${P}antidelete mode dm\n` +
-            `┃      → switch to owner-DM forward\n` +
-            `┃\n` +
-            `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-            `么 *SMILE PRIME MD* 么`
-        );
-    }
+            if (action === 'on' || action === 'off') {
+                const enabled = action === 'on';
+                let mode = current.mode || 'chat';
+                if (enabled && (modeArg === 'chat' || modeArg === 'dm')) mode = modeArg;
 
-    // ─── ON / OFF ───
-    if (action === 'on' || action === 'off') {
-        const enabled = action === 'on';
-        let mode = current.mode || 'chat';
-        if (enabled && (modeArg === 'chat' || modeArg === 'dm')) mode = modeArg;
+                settings.set('antidelete', { enabled, mode });
 
-        settings.set('antidelete', { enabled, mode });
+                if (!enabled) {
+                    return m.reply(
+                        `╭━━━〔 ❌ *DEACTIVATED* 〕━━━╮\n` +
+                        `┃\n` +
+                        `┃  Anti-delete is now *OFF*.\n` +
+                        `┃  Deleted messages will not\n` +
+                        `┃  be recovered anywhere.\n` +
+                        `┃\n` +
+                        `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                        `么 *SMILE PRIME MD* 么`
+                    );
+                }
 
-        if (!enabled) {
+                return m.reply(
+                    `╭━━━〔 ✅ *ACTIVATED* 〕━━━╮\n` +
+                    `┃\n` +
+                    `┃  🎯 Mode  : *${modeLabel(mode)}*\n` +
+                    `┃  🌍 Scope : Groups + Private DMs\n` +
+                    `┃\n` +
+                    `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
+                    `${mode === 'dm'
+                        ? '📩 Deleted messages will be *forwarded to the owner DM* from any chat.'
+                        : '💬 Deleted messages will be *restored in their original chat* (groups or DMs).'}\n\n` +
+                    `么 *SMILE PRIME MD* 么`
+                );
+            }
+
+            if (action === 'mode' || action === 'chat' || action === 'dm') {
+                const mode = action === 'mode' ? modeArg : action;
+
+                if (mode !== 'chat' && mode !== 'dm') {
+                    return m.reply(
+                        `❌ *Invalid mode*\n\n` +
+                        `Use:\n` +
+                        `• \`${P}antidelete mode chat\`\n` +
+                        `• \`${P}antidelete mode dm\``
+                    );
+                }
+
+                settings.set('antidelete', { enabled: current.enabled, mode });
+
+                return m.reply(
+                    `✅ Anti-delete mode → *${modeLabel(mode)}*\n` +
+                    `Status: ${onOff(current.enabled)}\n\n` +
+                    `_Applies to groups and DMs._`
+                );
+            }
+
             return m.reply(
-                `╭━━━〔 ❌ *DEACTIVATED* 〕━━━╮\n` +
-                `┃\n` +
-                `┃  Anti-delete is now *OFF*.\n` +
-                `┃  Deleted messages will not\n` +
-                `┃  be recovered anywhere.\n` +
-                `┃\n` +
-                `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                `么 *SMILE PRIME MD* 么`
+                `❌ *Unknown option* \`${action}\`\n\n` +
+                `Use \`${P}antidelete\` to see available commands.`
             );
         }
 
-        return m.reply(
-
+            
+        
          
 
 
