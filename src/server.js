@@ -19,6 +19,8 @@ const {
     isConnected,
     listSavedSessionIds,
     getAllSessions,
+    getSessionUpdateStatus,
+    updateSession,
 } = require('./session');
 const log = require('./lib/logger');
 const { printBox } = require('./lib/console');
@@ -243,6 +245,26 @@ const server = http.createServer(async (req, res) => {
                 connected: isConnected(number),
                 waiting: pending.has(number),
             });
+        }
+
+        if (url.pathname === '/api/update/status' && req.method === 'GET') {
+            const number = accountNumber(req);
+            if (!number) return send(res, 401, { error: 'Please log in.' });
+            if (!isPaired(number)) return send(res, 409, { error: 'Pair your bot before updating.' });
+            return send(res, 200, getSessionUpdateStatus(number));
+        }
+
+        if (url.pathname === '/api/update/apply' && req.method === 'POST') {
+            const number = accountNumber(req);
+            if (!number) return send(res, 401, { error: 'Please log in.' });
+            if (!isPaired(number)) return send(res, 409, { error: 'Pair your bot before updating.' });
+            try {
+                const result = await updateSession(number);
+                return send(res, 200, result);
+            } catch (err) {
+                log.error('update', `${number}: ${err.stack || err.message}`);
+                return send(res, 500, { error: err.message || 'The update could not be installed.' });
+            }
         }
 
         if (url.pathname === '/api/logout' && req.method === 'POST') {
