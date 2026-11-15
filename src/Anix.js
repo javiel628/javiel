@@ -379,32 +379,48 @@ function buildMainMenuText(settings) {
 }
 
 
-
-
-
 function buildCategoryText(category, prefix) {
+    const cleanBotName = BOT_DISPLAY
+        .replace(/^么\s*/, '')
+        .replace(/\s*么$/, '');
+
     const cmds = category.commands;
+    const totalCmds = cmds.length;
+
     const lines = cmds.map((c, i) => {
-        const bullet = cmds.length === 1 ? '╰─❖'
+        const bullet = totalCmds === 1 ? '╰─❖'
             : i === 0 ? '╭─❖'
-            : i === cmds.length - 1 ? '╰─❖'
+            : i === totalCmds - 1 ? '╰─❖'
             : '├─❖';
         return `  ${bullet} *${prefix}${c}*`;
     });
+
     return [
-        '╔═══━━━─── • ───━━━═══╗',
-        `     么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么`,
-        `       ⚜️『 ${category.name} MENU 』⚜️`,
-        '╚═══━━━─── • ───━━━═══╝',
+        `╭═══〘 *${cleanBotName}* 〙═══╮`,
+        '┃✫╭═─────────────────═╮',
+        `┃✬│ Dev     : ${author}`,
+        `┃✫│ Prefix  : ${prefix || 'none'}`,
+        `┃✫│ Edition : PRIME`,
+        `┃✯│ Status  : ONLINE`,
+        `┃✬│ Cmds    : ${totalCmds}`,
+        '┃✫│═════════════════════',
+        `┃✬│ ${cleanBotName}`,
+        '┃✫│═════════════════════',
+        '╰══──────────────────══╯',
+        `●════ 〘 ${category.name} 〙═──═●`,
         '',
-        ...lines,
+        '╭══───────◇───────══╮',
+        ...lines.map(l => '┃' + l),
+        '╰══───────◇───────══╯',
         '',
-        '╭━━━〔  么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么  〕━━━╮',
-        '╰━━━━━━━ 么 ━━━━━━━╯',
-        '',
-        '*0* — back to main menu'
+        '么 *𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝚳𝚵 𝚳𝐃* 么'
     ].join('\n');
 }
+
+
+
+
+
 
 /**
  * Sends image + text + ONE "📢 Channel" url button.
