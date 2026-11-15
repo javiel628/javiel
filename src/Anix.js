@@ -296,7 +296,7 @@ const SHADOW_MENU_CATEGORIES = [
             'base64', 'hash', 'morsecode', 'wordcount', 'dns', 'shorturl', 'currency', 'ipinfo', 'synonym', 'clearcache', 'botspeed', 'changelog', 'health', 'backupsettings', 'restoresettings', 'setdp', 'setfonts', 'setmenuimg'
         ]
 
-
+},
     {
         title: '🌐 WEB & NETWORK',
         name: 'WEB',
@@ -305,8 +305,8 @@ const SHADOW_MENU_CATEGORIES = [
             'httpstatus', 'redirect', 'robots', 'sitemap', 'ssl', 'cert',
             'cors', 'nslookup', 'traceroute', 'httpget', 'httphead', 'speedtest'
         ]
-    },
-
+},
+    
     {
         title: '🎉 FUN',
         name: 'FUN',
