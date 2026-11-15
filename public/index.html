@@ -89,7 +89,24 @@ ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16
 
     <div id="vOn" class="hide center">
       <p style="font-size:2.4rem">✅</p>
-      <p class="sub" style="margin-bottom:6px">Your bot is linked and running 24/7.</p>
+      <p class="sub" style="margin-bottom:6px">Your bot is linked. Its connection is monitored by the server.</p>
+
+      <section class="update-panel" style="text-align:left;border:1px solid var(--line);border-radius:16px;padding:16px;margin:18px 0 10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+          <b>🤖 Bot updates</b>
+          <span id="updateBadge" class="chip" style="margin:0;padding:5px 10px;font-size:.72rem">Checking…</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;font-size:.84rem;margin:7px 0">
+          <span style="color:var(--dim)">Installed version</span><b id="installedVersion">—</b>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:12px;font-size:.84rem;margin:7px 0">
+          <span style="color:var(--dim)">Latest version</span><b id="latestVersion">—</b>
+        </div>
+        <p id="updateMessage" class="hint" style="margin:10px 0;line-height:1.5">Checking your bot version…</p>
+        <button class="btn ghost" id="checkUpdate" type="button">Check for updates</button>
+        <button class="btn hide" id="updateNow" type="button" style="margin-top:9px">↻ UPDATE MY BOT</button>
+      </section>
+
       <button class="btn ghost" id="unlink" style="margin-top:12px">Unlink bot</button>
     </div>
 
@@ -136,6 +153,61 @@ document.addEventListener('keydown', e => { if (e.key === 'Enter' && !$('auth').
 
 function chip(cls, text) { $('chip').className = 'chip ' + cls; $('chipText').textContent = text; }
 
+function updateBadge(cls, text) {
+  $('updateBadge').className = 'chip ' + cls;
+  $('updateBadge').textContent = text;
+}
+
+async function loadUpdateStatus() {
+  $('checkUpdate').disabled = true;
+  try {
+    const s = await api('/api/update/status');
+    $('installedVersion').textContent = 'v' + s.installedVersion;
+    $('latestVersion').textContent = 'v' + s.currentVersion;
+    $('updateNow').classList.toggle('hide', !s.updateAvailable);
+    if (s.updating) {
+      updateBadge('wait', 'Updating…');
+      $('updateMessage').textContent = 'Your individual bot update is being installed.';
+    } else if (s.updateAvailable) {
+      updateBadge('wait', 'Update available');
+      $('updateMessage').textContent = 'A new version is ready. Updating affects only this account’s paired bot.';
+    } else {
+      updateBadge('online', 'Up to date');
+      $('updateMessage').textContent = 'Your bot is using the latest version currently deployed by the server.';
+    }
+  } catch (e) {
+    updateBadge('', 'Unavailable');
+    $('updateMessage').textContent = e.message;
+    $('updateNow').classList.add('hide');
+  } finally {
+    $('checkUpdate').disabled = false;
+  }
+}
+
+$('checkUpdate').onclick = loadUpdateStatus;
+$('updateNow').onclick = async () => {
+  if (!confirm('Update only your paired bot now? Your saved WhatsApp session will be kept.')) return;
+  $('updateNow').disabled = true;
+  $('checkUpdate').disabled = true;
+  $('updateMessage').textContent = 'Installing your update and restarting your bot…';
+  updateBadge('wait', 'Updating…');
+  try {
+    const result = await api('/api/update', {});
+    $('updateMessage').textContent = result.message || 'Update request completed.';
+    await loadUpdateStatus();
+    if (result.reconnecting) {
+      updateBadge('wait', 'Reconnecting…');
+      $('updateMessage').textContent = 'Your update is installed. Your bot is reconnecting with its existing WhatsApp session. This may take a little while.';
+    }
+  } catch (e) {
+    $('updateMessage').textContent = e.message;
+    updateBadge('', 'Update failed');
+  } finally {
+    $('updateNow').disabled = false;
+    $('checkUpdate').disabled = false;
+  }
+};
+
 async function load() {
   let me;
   try { me = await api('/api/me'); } catch (e) { stop(); show('auth'); return; }
@@ -143,8 +215,8 @@ async function load() {
   $('hello').textContent = 'Hello, user +' + me.number + ' 👋';
   $('dsub').textContent = 'Welcome back. This is your personal bot panel.';
   $('mine').textContent = '+' + me.number;
-  if (me.linked && me.connected) { chip('online', 'Bot online'); view('vOn'); stop(); }
-  else if (me.linked) { chip('wait', 'Linked · reconnecting…'); view('vOn'); poll = poll || setInterval(load, 4000); }
+  if (me.linked && me.connected) { chip('online', 'Bot online'); view('vOn'); stop(); loadUpdateStatus(); }
+  else if (me.linked) { chip('wait', 'Linked · reconnecting…'); view('vOn'); loadUpdateStatus(); poll = poll || setInterval(load, 4000); }
   else if (me.waiting && code) { chip('wait', 'Waiting for your code…'); view('vCode'); }
   else { chip('', 'Not linked yet'); view('vLink'); stop(); }
 }
