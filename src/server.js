@@ -232,30 +232,28 @@ async function handleApi(req, res, url) {
     if (!me) return send(res, 401, { error: 'Please log in.' });
 
     if (p === '/api/me') {
-        return send(res, 200, { number: me, linked: isPaired(me), connected: isConnected(me), waiting: pending.has(me) });
+        const linked = isPaired(me);
+        return send(res, 200, {
+            number: me,
+            linked,
+            connected: isConnected(me),
+            waiting: pending.has(me),
+            ...(linked ? { update: getSessionUpdateStatus(me) } : {}),
+        });
     }
 
-    // Update controls are scoped to the authenticated account's own WhatsApp number.
-    if (p === '/api/update/status' && req.method === 'GET') {
-        if (!isPaired(me)) return send(res, 409, { error: 'Link your bot before checking for updates.' });
-        try {
-            return send(res, 200, getSessionUpdateStatus(me));
-        } catch (err) {
-            log.error('update', `${me}: status check failed: ${err.message}`);
-            return send(res, 500, { error: 'Could not check this bot version.' });
-        }
-    }
-
+    // UPDATE MY BOT: updates only the logged-in account's own bot. Every other number keeps its current version.
     if (p === '/api/update' && post) {
-        if (limited('update:' + me)) return send(res, 429, { error: 'Too many update requests. Wait a few minutes.' });
-        if (!isPaired(me)) return send(res, 409, { error: 'Link your bot before updating.' });
+        if (limited('update:' + me)) return send(res, 429, { error: 'Too many requests. Wait a few minutes.' });
+        if (!isPaired(me)) return send(res, 400, { error: 'Link your bot first.' });
         try {
-            const result = await updateSession(me);
-            const status = getSessionUpdateStatus(me);
-            return send(res, 200, { ...result, status });
+            const result = await updateSession(me, baseOpts(me)); // `me` comes from the login cookie, never from the request body
+            stoppedOnPurpose.delete(me);
+            downSince.delete(me);
+            return send(res, 200, { ...result, update: getSessionUpdateStatus(me) });
         } catch (err) {
-            log.error('update', `${me}: update failed: ${err.stack || err.message}`);
-            return send(res, 502, { error: err.message || 'The update could not be installed.' });
+            log.warn('update', `${me}: ${err.message}`);
+            return send(res, 502, { error: err.message });
         }
     }
 
