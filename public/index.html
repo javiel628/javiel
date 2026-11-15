@@ -38,7 +38,6 @@ ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16
 .hide{display:none}
 .ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.row .btn{padding:12px;font-size:.9rem}
-.updatebox{border:1px solid var(--line);border-radius:16px;padding:15px;margin:18px 0;text-align:left}.updatebox strong{display:block;margin-bottom:5px}.updatebox p{color:var(--dim);font-size:.82rem;margin:0 0 12px}.updatebox .btn{padding:12px;font-size:.9rem}
 </style>
 </head>
 <body>
@@ -91,11 +90,6 @@ ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16
     <div id="vOn" class="hide center">
       <p style="font-size:2.4rem">✅</p>
       <p class="sub" style="margin-bottom:6px">Your bot is linked and running 24/7.</p>
-      <div class="updatebox" id="updatePanel">
-        <strong id="updateTitle">Checking for updates…</strong>
-        <p id="updateInfo">Your bot version will appear here.</p>
-        <button class="btn" id="updateBot" disabled>CHECKING…</button>
-      </div>
       <button class="btn ghost" id="unlink" style="margin-top:12px">Unlink bot</button>
     </div>
 
@@ -149,42 +143,12 @@ async function load() {
   $('hello').textContent = 'Hello, user +' + me.number + ' 👋';
   $('dsub').textContent = 'Welcome back. This is your personal bot panel.';
   $('mine').textContent = '+' + me.number;
-  if (me.linked && me.connected) { chip('online', 'Bot online'); view('vOn'); stop(); await loadUpdateStatus(); }
-  else if (me.linked) { chip('wait', 'Linked · reconnecting…'); view('vOn'); await loadUpdateStatus(); poll = poll || setInterval(load, 4000); }
+  if (me.linked && me.connected) { chip('online', 'Bot online'); view('vOn'); stop(); }
+  else if (me.linked) { chip('wait', 'Linked · reconnecting…'); view('vOn'); poll = poll || setInterval(load, 4000); }
   else if (me.waiting && code) { chip('wait', 'Waiting for your code…'); view('vCode'); }
   else { chip('', 'Not linked yet'); view('vLink'); stop(); }
 }
 function stop() { clearInterval(poll); clearInterval(tick); poll = tick = null; }
-
-async function loadUpdateStatus() {
-  const title = $('updateTitle'), info = $('updateInfo'), button = $('updateBot');
-  try {
-    const status = await api('/api/update/status');
-    title.textContent = status.updateAvailable ? 'A new bot version is available' : 'Your bot is up to date';
-    info.textContent = `Installed: ${status.installedVersion} · Latest: ${status.currentVersion}`;
-    button.disabled = !status.updateAvailable || status.updating;
-    button.textContent = status.updating ? 'UPDATING…' : status.updateAvailable ? 'UPDATE MY BOT' : 'UP TO DATE';
-  } catch (e) {
-    title.textContent = 'Update status unavailable'; info.textContent = e.message;
-    button.disabled = true; button.textContent = 'UNAVAILABLE';
-  }
-}
-$('updateBot').onclick = async () => {
-  const button = $('updateBot');
-  if (!confirm('Update only your paired bot now? Your WhatsApp pairing will be kept.')) return;
-  button.disabled = true; button.textContent = 'UPDATING…';
-  $('updateTitle').textContent = 'Installing your bot update';
-  $('updateInfo').textContent = 'Only your bot session will restart. Keep this page open.';
-  try {
-    const result = await api('/api/update/apply', {});
-    $('updateTitle').textContent = result.message || 'Update installed';
-    $('updateInfo').textContent = `Version ${result.version}. Reconnecting your bot…`;
-    setTimeout(load, 3500);
-  } catch (e) {
-    $('updateTitle').textContent = 'Update failed'; $('updateInfo').textContent = e.message;
-    button.disabled = false; button.textContent = 'TRY AGAIN';
-  }
-};
 
 $('link').onclick = async () => {
   $('link').disabled = true; $('derr').textContent = '';
