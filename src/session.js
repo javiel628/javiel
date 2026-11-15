@@ -487,18 +487,49 @@ function getSessionUpdateStatus(sessionId) {
 async function updateSession(sessionId) {
     if (!isPaired(sessionId)) throw new Error('This WhatsApp number is not paired.');
     if (updateJobs.has(sessionId)) return updateJobs.get(sessionId);
+
     const job = (async () => {
         const before = getRuntimeInfo(sessionId);
-        if (before.version === safeVersion(CURRENT_BOT_VERSION)) {
+        const targetVersion = safeVersion(CURRENT_BOT_VERSION);
+        if (before.version === targetVersion) {
             return { updated: false, version: before.version, message: 'Your bot is already up to date.' };
         }
-        installRuntimeSnapshot(sessionId, CURRENT_BOT_VERSION);
+
+        // Install only into this number's private runtime folder. WhatsApp auth files
+        // are deliberately not touched, so a normal update does not request re-pairing.
+        installRuntimeSnapshot(sessionId, targetVersion);
         const opts = sessionOptions.get(sessionId) || { restored: true };
         clearTimeout(timers.get(sessionId));
         timers.delete(sessionId);
-        await startSession(sessionId, { ...opts, restored: true });
-        return { updated: true, version: safeVersion(CURRENT_BOT_VERSION), message: 'Your bot update was installed.' };
+
+        try {
+            await startSession(sessionId, { ...opts, restored: true });
+        } catch (err) {
+            // If the new runtime cannot even initialize, restore the previous runtime
+            // pointer and try to bring the previous handlers back.
+            const metaTemp = `${runtimeMeta(sessionId)}.rollback`;
+            fs.writeFileSync(metaTemp, JSON.stringify({
+                version: before.version,
+                updatedAt: new Date().toISOString(),
+                rollback: true
+            }, null, 2));
+            fs.renameSync(metaTemp, runtimeMeta(sessionId));
+            try {
+                await startSession(sessionId, { ...opts, restored: true });
+            } catch (rollbackErr) {
+                log.error(`session:${sessionId}`, `runtime rollback restart failed: ${rollbackErr.message}`);
+            }
+            throw new Error(`Update could not start; the previous bot version was restored. ${err.message}`);
+        }
+
+        return {
+            updated: true,
+            version: targetVersion,
+            message: 'The update was installed for this bot only. WhatsApp is reconnecting with the existing session.',
+            reconnecting: true
+        };
     })();
+
     updateJobs.set(sessionId, job);
     try { return await job; }
     finally { updateJobs.delete(sessionId); }
