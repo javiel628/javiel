@@ -295,7 +295,18 @@ const SHADOW_MENU_CATEGORIES = [
         commands: [
             'base64', 'hash', 'morsecode', 'wordcount', 'dns', 'shorturl', 'currency', 'ipinfo', 'synonym', 'clearcache', 'botspeed', 'changelog', 'health', 'backupsettings', 'restoresettings', 'setdp', 'setfonts', 'setmenuimg'
         ]
+
+
+    {
+        title: '🌐 WEB & NETWORK',
+        name: 'WEB',
+        commands: [
+            'dns', 'whois', 'ip', 'myip', 'pinghost', 'portscan', 'headers',
+            'httpstatus', 'redirect', 'robots', 'sitemap', 'ssl', 'cert',
+            'cors', 'nslookup', 'traceroute', 'httpget', 'httphead', 'speedtest'
+        ]
     },
+
     {
         title: '🎉 FUN',
         name: 'FUN',
@@ -2135,6 +2146,328 @@ _© ${botName(settings, config)}_
                 `Use \`${P}antidelete\` to see available commands.`
             );
         }
+
+
+
+
+        // ─────────────────────────── 🌐 WEB & NETWORK ───────────────────────────
+        case 'dns':
+        case 'nslookup': {
+            const host = (args[0] || '').trim().replace(/^https?:\/\//i, '').split('/')[0];
+            if (!host) return m.reply(`Usage: ${P}${cmd} <domain>\nExample: ${P}${cmd} google.com`);
+            try {
+                await m.react('⏳');
+                const dns = require('dns').promises;
+                const [a, aaaa, mx, txt, ns, cname] = await Promise.all([
+                    dns.resolve4(host).catch(() => []),
+                    dns.resolve6(host).catch(() => []),
+                    dns.resolveMx(host).catch(() => []),
+                    dns.resolveTxt(host).catch(() => []),
+                    dns.resolveNs(host).catch(() => []),
+                    dns.resolveCname(host).catch(() => [])
+                ]);
+                const lines = [
+                    `🌐 *DNS LOOKUP* — ${host}`,
+                    '',
+                    `📌 *A:* ${a.length ? a.join(', ') : '—'}`,
+                    `📌 *AAAA:* ${aaaa.length ? aaaa.join(', ') : '—'}`,
+                    `📌 *CNAME:* ${cname.length ? cname.join(', ') : '—'}`,
+                    `📌 *MX:* ${mx.length ? mx.map(r => `${r.priority} ${r.exchange}`).join(', ') : '—'}`,
+                    `📌 *NS:* ${ns.length ? ns.join(', ') : '—'}`,
+                    `📌 *TXT:* ${txt.length ? txt.map(t => t.join('')).join(' | ').slice(0, 300) : '—'}`
+                ];
+                return m.reply(lines.join('\n'));
+            } catch (err) {
+                log.error(cmd, err.message);
+                return m.reply(`❌ DNS lookup failed: ${err.message}`);
+            }
+        }
+
+        case 'whois': {
+            const host = (args[0] || '').trim().replace(/^https?:\/\//i, '').split('/')[0];
+            if (!host) return m.reply(`Usage: ${P}whois <domain>`);
+            try {
+                await m.react('⏳');
+                const res = await fetch(`https://rdap.org/domain/${encodeURIComponent(host)}`, {
+                    headers: { 'Accept': 'application/rdap+json' },
+                    signal: AbortSignal.timeout(15000)
+                });
+                if (!res.ok) return m.reply(`❌ No WHOIS data for ${host} (status ${res.status}).`);
+                const j = await res.json();
+                const events = (j.events || []).map(e => `• ${e.eventAction}: ${new Date(e.eventDate).toISOString().slice(0,10)}`).join('\n');
+                const ns = (j.nameservers || []).map(n => n.ldhName).join(', ') || '—';
+                const status = (j.status || []).join(', ') || '—';
+                const registrar = (j.entities || []).find(e => (e.roles || []).includes('registrar'));
+                const regName = registrar?.vcardArray?.[1]?.find(v => v[0] === 'fn')?.[3] || '—';
+                return m.reply(
+                    `🔎 *WHOIS — ${host}*\n\n` +
+                    `🏢 Registrar: ${regName}\n` +
+                    `📅 Events:\n${events || '—'}\n\n` +
+                    `🌐 Nameservers: ${ns}\n` +
+                    `📌 Status: ${status}`
+                );
+            } catch (err) {
+                log.error('whois', err.message);
+                return m.reply(`❌ WHOIS failed: ${err.message}`);
+            }
+        }
+
+        case 'ip':
+        case 'myip': {
+            const target = (args[0] || '').trim();
+            try {
+                await m.react('⏳');
+                if (!target) {
+                    const res = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(10000) });
+                    const j = await res.json();
+                    return m.reply(`🌍 *Your server IP*\n${j.ip}`);
+                }
+                if (!/^[\d.]+$/.test(target) && !target.includes(':')) {
+                    const dns = require('dns').promises;
+                    const addrs = await dns.lookup(target, { all: true }).catch(() => []);
+                    if (!addrs.length) return m.reply(`❌ Could not resolve ${target}.`);
+                    return m.reply(`🌍 *${target}* resolves to:\n${addrs.map(a => `• ${a.address} (IPv${a.family})`).join('\n')}`);
+                }
+                const res = await fetch(`https://ipapi.co/${encodeURIComponent(target)}/json/`, { signal: AbortSignal.timeout(10000) });
+                if (!res.ok) return m.reply('❌ IP lookup failed.');
+                const j = await res.json();
+                if (j.error) return m.reply(`❌ ${j.reason || 'Lookup failed'}`);
+                return m.reply(
+                    `🌍 *IP INFO — ${j.ip}*\n\n` +
+                    `🏳️ Country: ${j.country_name || '—'} (${j.country_code || '—'})\n` +
+                    `🏙️ City: ${j.city || '—'}\n` +
+                    `📍 Region: ${j.region || '—'}\n` +
+                    `📮 Postal: ${j.postal || '—'}\n` +
+                    `🕒 Timezone: ${j.timezone || '—'}\n` +
+                    `📡 ISP: ${j.org || '—'}\n` +
+                    `🗺️ Loc: ${j.latitude ?? '—'}, ${j.longitude ?? '—'}\n` +
+                    `🔗 https://ipapi.co/${j.ip}/`
+                );
+            } catch (err) {
+                log.error('ip', err.message);
+                return m.reply(`❌ IP lookup failed: ${err.message}`);
+            }
+        }
+
+        case 'pinghost': {
+            const host = (args[0] || '').trim().replace(/^https?:\/\//i, '').split('/')[0];
+            if (!host) return m.reply(`Usage: ${P}pinghost <host or url>`);
+            try {
+                await m.react('⏳');
+                const start = Date.now();
+                const res = await fetch(`https://${host}`, {
+                    method: 'HEAD',
+                    signal: AbortSignal.timeout(10000),
+                    redirect: 'follow'
+                }).catch(() => fetch(`http://${host}`, { method: 'HEAD', signal: AbortSignal.timeout(10000) }).catch(() => null));
+                const ms = Date.now() - start;
+                if (!res) return m.reply(`❌ ${host} is unreachable.`);
+                return m.reply(`📡 *${host}*\n✅ Status: ${res.status} ${res.statusText}\n⏱️ Latency: ${ms}ms`);
+            } catch (err) {
+                return m.reply(`❌ ${host} unreachable: ${err.message}`);
+            }
+        }
+
+        case 'headers': {
+            const url = (args[0] || '').trim();
+            if (!url) return m.reply(`Usage: ${P}headers <url>`);
+            try {
+                await m.react('⏳');
+                const res = await fetch(url, { method: 'GET', redirect: 'follow', signal: AbortSignal.timeout(15000) });
+                const lines = [`📋 *HEADERS — ${res.url}*\n`, `Status: ${res.status} ${res.statusText}\n`];
+                res.headers.forEach((v, k) => lines.push(`• *${k}:* ${v.slice(0, 200)}`));
+                return m.reply(lines.join('\n'));
+            } catch (err) {
+                return m.reply(`❌ Failed: ${err.message}`);
+            }
+        }
+
+        case 'httpstatus':
+        case 'httpget':
+        case 'httphead': {
+            const url = (args[0] || '').trim();
+            if (!url) return m.reply(`Usage: ${P}${cmd} <url>`);
+            try {
+                await m.react('⏳');
+                const method = cmd === 'httphead' ? 'HEAD' : 'GET';
+                const start = Date.now();
+                const res = await fetch(url, { method, redirect: 'follow', signal: AbortSignal.timeout(15000) });
+                const ms = Date.now() - start;
+                if (cmd !== 'httpget') {
+                    return m.reply(`🌐 *${url}*\n✅ ${res.status} ${res.statusText}\n⏱️ ${ms}ms\n📦 Type: ${res.headers.get('content-type') || '—'}`);
+                }
+                const buf = Buffer.from(await res.arrayBuffer());
+                const type = res.headers.get('content-type') || '';
+                const maxInline = 3500;
+                if (type.includes('text') || type.includes('json') || type.includes('xml') || type.includes('javascript')) {
+                    let body = buf.toString('utf8');
+                    if (body.length > maxInline) {
+                        return m.send({
+                            document: buf,
+                            fileName: 'response.txt',
+                            mimetype: type || 'text/plain',
+                            caption: `🌐 *${url}*\n✅ ${res.status} ${res.statusText} — ${buf.length} bytes`
+                        });
+                    }
+                    return m.reply(`🌐 *${url}*\n✅ ${res.status} — ${ms}ms\n\n\`\`\`\n${body}\n\`\`\``);
+                }
+                return m.reply(`🌐 *${url}*\n✅ ${res.status} ${res.statusText}\n📦 ${type || 'binary'} — ${buf.length} bytes (not shown)`);
+            } catch (err) {
+                return m.reply(`❌ Request failed: ${err.message}`);
+            }
+        }
+
+        case 'redirect': {
+            const url = (args[0] || '').trim();
+            if (!url) return m.reply(`Usage: ${P}redirect <url>`);
+            try {
+                await m.react('⏳');
+                const chain = [];
+                let current = url;
+                for (let i = 0; i < 10; i++) {
+                    const res = await fetch(current, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(10000) });
+                    chain.push(`↳ ${res.status} ${current}`);
+                    if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+                        current = new URL(res.headers.get('location'), current).toString();
+                    } else break;
+                }
+                return m.reply(`🔗 *REDIRECT CHAIN*\n\n${chain.join('\n')}\n\n🏁 Final: ${current}`);
+            } catch (err) {
+                return m.reply(`❌ Failed: ${err.message}`);
+            }
+        }
+
+        case 'robots': {
+            const base = (args[0] || '').trim().replace(/\/$/, '');
+            if (!base) return m.reply(`Usage: ${P}robots <url>`);
+            try {
+                const url = base.startsWith('http') ? `${base}/robots.txt` : `https://${base}/robots.txt`;
+                const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+                if (!res.ok) return m.reply(`❌ No robots.txt (status ${res.status})`);
+                const text = (await res.text()).slice(0, 3500);
+                return m.reply(`🤖 *robots.txt — ${base}*\n\n\`\`\`\n${text}\n\`\`\``);
+            } catch (err) {
+                return m.reply(`❌ Failed: ${err.message}`);
+            }
+        }
+
+        case 'sitemap': {
+            const base = (args[0] || '').trim().replace(/\/$/, '');
+            if (!base) return m.reply(`Usage: ${P}sitemap <url>`);
+            try {
+                const url = base.startsWith('http') ? `${base}/sitemap.xml` : `https://${base}/sitemap.xml`;
+                const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+                if (!res.ok) return m.reply(`❌ No sitemap.xml (status ${res.status})`);
+                const xml = await res.text();
+                const urls = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1]);
+                if (!urls.length) return m.reply('⚠️ Sitemap found but no <loc> URLs.');
+                return m.reply(`🗺️ *sitemap.xml — ${base}*\n📄 ${urls.length} URLs\n\n${urls.slice(0, 20).map(u => `• ${u}`).join('\n')}${urls.length > 20 ? `\n…and ${urls.length - 20} more` : ''}`);
+            } catch (err) {
+                return m.reply(`❌ Failed: ${err.message}`);
+            }
+        }
+
+        case 'ssl':
+        case 'cert': {
+            const host = (args[0] || '').trim().replace(/^https?:\/\//i, '').split('/')[0];
+            if (!host) return m.reply(`Usage: ${P}${cmd} <domain>`);
+            try {
+                await m.react('⏳');
+                const tls = require('tls');
+                const info = await new Promise((resolve, reject) => {
+                    const socket = tls.connect({ host, port: 443, servername: host, timeout: 10000 }, () => {
+                        const cert = socket.getPeerCertificate();
+                        socket.end();
+                        resolve(cert);
+                    });
+                    socket.on('error', reject);
+                    socket.on('timeout', () => { socket.destroy(); reject(new Error('timeout')); });
+                });
+                if (!info || !info.subject) return m.reply('❌ No certificate returned.');
+                return m.reply(
+                    `🔒 *TLS CERTIFICATE — ${host}*\n\n` +
+                    `📛 Subject: ${info.subject.CN || '—'}\n` +
+                    `🏢 Issuer: ${info.issuer.O || info.issuer.CN || '—'}\n` +
+                    `📅 Valid from: ${info.valid_from}\n` +
+                    `📅 Valid to: ${info.valid_to}\n` +
+                    `🔑 Serial: ${info.serialNumber || '—'}\n` +
+                    `🧬 Fingerprint: ${info.fingerprint || '—'}\n` +
+                    `📌 SAN: ${(info.subjectaltname || '—').slice(0, 300)}`
+                );
+            } catch (err) {
+                log.error(cmd, err.message);
+                return m.reply(`❌ TLS check failed: ${err.message}`);
+            }
+        }
+
+        case 'cors': {
+            const url = (args[0] || '').trim();
+            if (!url) return m.reply(`Usage: ${P}cors <url>`);
+            try {
+                await m.react('⏳');
+                const res = await fetch(url, {
+                    method: 'OPTIONS',
+                    headers: { 'Origin': 'https://example.com', 'Access-Control-Request-Method': 'GET' },
+                    signal: AbortSignal.timeout(10000)
+                });
+                const h = (k) => res.headers.get(k) || '—';
+                return m.reply(
+                    `🌐 *CORS — ${url}*\n\n` +
+                    `Status: ${res.status}\n` +
+                    `• Access-Control-Allow-Origin: ${h('access-control-allow-origin')}\n` +
+                    `• Access-Control-Allow-Methods: ${h('access-control-allow-methods')}\n` +
+                    `• Access-Control-Allow-Headers: ${h('access-control-allow-headers')}\n` +
+                    `• Access-Control-Max-Age: ${h('access-control-max-age')}\n` +
+                    `• Access-Control-Allow-Credentials: ${h('access-control-allow-credentials')}`
+                );
+            } catch (err) {
+                return m.reply(`❌ Failed: ${err.message}`);
+            }
+        }
+
+        case 'portscan': {
+            const target = (args[0] || '').trim().replace(/^https?:\/\//i, '').split('/')[0];
+            if (!target) return m.reply(`Usage: ${P}portscan <host>\nScans common ports only (no full range).`);
+            const common = [21, 22, 23, 25, 53, 80, 110, 143, 443, 465, 587, 993, 995, 3306, 3389, 5432, 6379, 8080, 8443, 27017];
+            try {
+                await m.react('⏳');
+                const dns = require('dns').promises;
+                const addrs = await dns.lookup(target, { all: true }).catch(() => []);
+                if (!addrs.length) return m.reply(`❌ Could not resolve ${target}.`);
+                const ip = addrs[0].address;
+                const net = require('net');
+                const open = [];
+                await Promise.all(common.map(port => new Promise(resolve => {
+                    const s = new net.Socket();
+                    const done = (ok) => { s.destroy(); if (ok) open.push(port); resolve(); };
+                    s.setTimeout(1500);
+                    s.on('connect', () => done(true));
+                    s.on('timeout', () => done(false));
+                    s.on('error', () => done(false));
+                    s.connect(port, ip);
+                })));
+                open.sort((a, b) => a - b);
+                return m.reply(
+                    `🔍 *PORT SCAN — ${target} (${ip})*\n\n` +
+                    `✅ Open (${open.length}/${common.length}):\n${open.length ? open.map(p => `• ${p}`).join('\n') : '• none'}\n\n` +
+                    `_Common ports only. This is not a full port scan._`
+                );
+            } catch (err) {
+                log.error('portscan', err.message);
+                return m.reply(`❌ Scan failed: ${err.message}`);
+            }
+        }
+
+        case 'traceroute': {
+            const host = (args[0] || '').trim().replace(/^https?:\/\//i, '').split('/')[0];
+            if (!host) return m.reply(`Usage: ${P}traceroute <host>`);
+            return m.reply('⚠️ `traceroute` needs raw sockets / system privileges and is not portable in Node. Use `pinghost`, `dns`, or `portscan` instead.');
+        }
+
+        case 'speedtest': {
+            return m.reply('⚠️ `speedtest` requires the `speedtest-net` package. Install it:\n`npm i speedtest-net`\nThen enable this command.');
+        }
+
 
             
         
