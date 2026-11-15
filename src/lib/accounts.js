@@ -34,14 +34,10 @@ function data() {
 const exists = (number) => !!data().users[number];
 
 async function create(number, password) {
-    // Hash first, then check again immediately before writing. This prevents two
-    // concurrent registration requests from overwriting the same phone account.
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = (await scrypt(password, salt, 32)).toString('hex');
-    if (exists(number)) return false;
     data().users[number] = { salt, hash, createdAt: Date.now() };
     save();
-    return true;
 }
 
 async function verify(number, password) {
@@ -68,4 +64,3 @@ function fromToken(tok) {
 }
 
 module.exports = { exists, create, verify, token, fromToken, MAX_AGE };
-
