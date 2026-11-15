@@ -19,6 +19,7 @@
 */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const packageJson = require('../package.json');
 const {
     default: makeWASocket,
@@ -127,7 +128,34 @@ const authDir = (id) => path.join(AUTH_ROOT, safeId(id));
 const dataDir = (id) => path.join(DATA_ROOT, safeId(id));
 const runtimeRoot = (id) => path.join(authDir(id), '.runtime');
 const runtimeMeta = (id) => path.join(authDir(id), '.runtime-version.json');
-const CURRENT_BOT_VERSION = String(packageJson.version || '1.0.0');
+const SRC_DIR = __dirname;
+// host-level files: they run in the main process, never from a per-number snapshot, so changing them is not a bot update
+const HOST_FILES = new Set(['server.js', 'session.js', 'index.js']);
+
+/** Short fingerprint of the bot code a number actually loads (src/ minus host files).
+ * Any redeploy that changes the bot automatically counts as a new release - no manual version bump needed. */
+function sourceFingerprint() {
+    const hash = crypto.createHash('sha1');
+    const walk = (dir) => {
+        const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+        for (const e of entries) {
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) {
+                if (e.name !== 'node_modules') walk(full);
+            } else if (e.isFile() && !(dir === SRC_DIR && HOST_FILES.has(e.name))) {
+                hash.update(path.relative(SRC_DIR, full));
+                hash.update(fs.readFileSync(full));
+            }
+        }
+    };
+    try {
+        walk(SRC_DIR);
+        return hash.digest('hex').slice(0, 8);
+    } catch {
+        return 'nohash';
+    }
+}
+const CURRENT_BOT_VERSION = `${packageJson.version || '1.0.0'}-${sourceFingerprint()}`;
 
 function safeVersion(version) {
     return String(version || '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'unknown';
@@ -139,7 +167,7 @@ function safeVersion(version) {
 function installRuntimeSnapshot(sessionId, version = CURRENT_BOT_VERSION) {
     const safe = safeVersion(version);
     const destination = path.join(runtimeRoot(sessionId), safe, 'src');
-    const source = path.join(process.cwd(), 'src');
+    const source = SRC_DIR;
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     const temp = `${destination}.tmp-${process.pid}`;
     fs.rmSync(temp, { recursive: true, force: true });
@@ -150,6 +178,22 @@ function installRuntimeSnapshot(sessionId, version = CURRENT_BOT_VERSION) {
     fs.writeFileSync(metaTemp, JSON.stringify({ version: safe, updatedAt: new Date().toISOString() }, null, 2));
     fs.renameSync(metaTemp, runtimeMeta(sessionId));
     return { version: safe, srcDir: destination };
+}
+
+/** Deletes every installed snapshot of this number except `keepVersion`, and drops their modules from memory. */
+function pruneOldSnapshots(sessionId, keepVersion) {
+    const keep = safeVersion(keepVersion);
+    let dirs = [];
+    try {
+        dirs = fs.readdirSync(runtimeRoot(sessionId), { withFileTypes: true }).filter((d) => d.isDirectory() && d.name !== keep);
+    } catch {
+        return;
+    }
+    for (const d of dirs) {
+        const dir = path.join(runtimeRoot(sessionId), d.name);
+        for (const key of Object.keys(require.cache)) if (key.startsWith(dir + path.sep)) delete require.cache[key];
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
 }
 
 function getRuntimeInfo(sessionId) {
@@ -483,53 +527,35 @@ function getSessionUpdateStatus(sessionId) {
 }
 
 /** Installs the currently deployed src/ snapshot for this number only, then
- * recreates only its WhatsApp socket using the same saved auth credentials. */
-async function updateSession(sessionId) {
+ * recreates only its WhatsApp socket using the same saved auth credentials.
+ * Other numbers keep running the snapshot they already have until they update themselves. */
+async function updateSession(sessionId, fallbackOpts = {}) {
     if (!isPaired(sessionId)) throw new Error('This WhatsApp number is not paired.');
     if (updateJobs.has(sessionId)) return updateJobs.get(sessionId);
-
     const job = (async () => {
         const before = getRuntimeInfo(sessionId);
-        const targetVersion = safeVersion(CURRENT_BOT_VERSION);
-        if (before.version === targetVersion) {
+        if (before.version === safeVersion(CURRENT_BOT_VERSION)) {
             return { updated: false, version: before.version, message: 'Your bot is already up to date.' };
         }
-
-        // Install only into this number's private runtime folder. WhatsApp auth files
-        // are deliberately not touched, so a normal update does not request re-pairing.
-        installRuntimeSnapshot(sessionId, targetVersion);
-        const opts = sessionOptions.get(sessionId) || { restored: true };
+        installRuntimeSnapshot(sessionId, CURRENT_BOT_VERSION);
+        const opts = sessionOptions.get(sessionId) || { ...fallbackOpts, restored: true };
         clearTimeout(timers.get(sessionId));
         timers.delete(sessionId);
-
+        retries.delete(sessionId);
         try {
             await startSession(sessionId, { ...opts, restored: true });
         } catch (err) {
-            // If the new runtime cannot even initialize, restore the previous runtime
-            // pointer and try to bring the previous handlers back.
-            const metaTemp = `${runtimeMeta(sessionId)}.rollback`;
-            fs.writeFileSync(metaTemp, JSON.stringify({
-                version: before.version,
-                updatedAt: new Date().toISOString(),
-                rollback: true
-            }, null, 2));
-            fs.renameSync(metaTemp, runtimeMeta(sessionId));
+            // could not start on the new code: go back to what worked, this number must never be left broken
             try {
-                await startSession(sessionId, { ...opts, restored: true });
-            } catch (rollbackErr) {
-                log.error(`session:${sessionId}`, `runtime rollback restart failed: ${rollbackErr.message}`);
-            }
-            throw new Error(`Update could not start; the previous bot version was restored. ${err.message}`);
+                fs.writeFileSync(runtimeMeta(sessionId), JSON.stringify({ version: before.version, updatedAt: new Date().toISOString() }, null, 2));
+            } catch { /* ignore */ }
+            await startSession(sessionId, { ...opts, restored: true }).catch(() => {});
+            throw new Error(`Update failed: ${err.message}`);
         }
-
-        return {
-            updated: true,
-            version: targetVersion,
-            message: 'The update was installed for this bot only. WhatsApp is reconnecting with the existing session.',
-            reconnecting: true
-        };
+        pruneOldSnapshots(sessionId, CURRENT_BOT_VERSION);
+        log.success(`session:${sessionId}`, `updated ${before.version} -> ${safeVersion(CURRENT_BOT_VERSION)}`);
+        return { updated: true, version: safeVersion(CURRENT_BOT_VERSION), message: 'Your bot was updated.' };
     })();
-
     updateJobs.set(sessionId, job);
     try { return await job; }
     finally { updateJobs.delete(sessionId); }
