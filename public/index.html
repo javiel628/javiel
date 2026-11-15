@@ -37,6 +37,10 @@ input:focus{border-color:var(--a);box-shadow:0 0 0 4px rgba(109,74,255,.15)}
 ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16px 0}
 .hide{display:none}
 .ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.upd{margin-top:16px;padding:14px;border:1.5px solid var(--line);border-radius:16px}
+.upd.avail{border-color:var(--a)}
+.upd p{font-size:.82rem;color:var(--dim);margin-bottom:10px}
+.upd p b{color:var(--ink)}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.row .btn{padding:12px;font-size:.9rem}
 </style>
 </head>
@@ -89,24 +93,11 @@ ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16
 
     <div id="vOn" class="hide center">
       <p style="font-size:2.4rem">✅</p>
-      <p class="sub" style="margin-bottom:6px">Your bot is linked. Its connection is monitored by the server.</p>
-
-      <section class="update-panel" style="text-align:left;border:1px solid var(--line);border-radius:16px;padding:16px;margin:18px 0 10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
-          <b>🤖 Bot updates</b>
-          <span id="updateBadge" class="chip" style="margin:0;padding:5px 10px;font-size:.72rem">Checking…</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;gap:12px;font-size:.84rem;margin:7px 0">
-          <span style="color:var(--dim)">Installed version</span><b id="installedVersion">—</b>
-        </div>
-        <div style="display:flex;justify-content:space-between;gap:12px;font-size:.84rem;margin:7px 0">
-          <span style="color:var(--dim)">Latest version</span><b id="latestVersion">—</b>
-        </div>
-        <p id="updateMessage" class="hint" style="margin:10px 0;line-height:1.5">Checking your bot version…</p>
-        <button class="btn ghost" id="checkUpdate" type="button">Check for updates</button>
-        <button class="btn hide" id="updateNow" type="button" style="margin-top:9px">↻ UPDATE MY BOT</button>
-      </section>
-
+      <p class="sub" style="margin-bottom:6px">Your bot is linked and running 24/7.</p>
+      <div class="upd" id="updBox">
+        <p id="updText"></p>
+        <button class="btn" id="upd">UPDATE MY BOT</button>
+      </div>
       <button class="btn ghost" id="unlink" style="margin-top:12px">Unlink bot</button>
     </div>
 
@@ -117,7 +108,7 @@ ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16
 
 <script>
 const $ = id => document.getElementById(id);
-let mode = 'register', poll = null, tick = null, code = '';
+let mode = 'register', poll = null, tick = null, code = '', updating = false;
 
 async function api(path, body) {
   const r = await fetch(path, {
@@ -153,61 +144,6 @@ document.addEventListener('keydown', e => { if (e.key === 'Enter' && !$('auth').
 
 function chip(cls, text) { $('chip').className = 'chip ' + cls; $('chipText').textContent = text; }
 
-function updateBadge(cls, text) {
-  $('updateBadge').className = 'chip ' + cls;
-  $('updateBadge').textContent = text;
-}
-
-async function loadUpdateStatus() {
-  $('checkUpdate').disabled = true;
-  try {
-    const s = await api('/api/update/status');
-    $('installedVersion').textContent = 'v' + s.installedVersion;
-    $('latestVersion').textContent = 'v' + s.currentVersion;
-    $('updateNow').classList.toggle('hide', !s.updateAvailable);
-    if (s.updating) {
-      updateBadge('wait', 'Updating…');
-      $('updateMessage').textContent = 'Your individual bot update is being installed.';
-    } else if (s.updateAvailable) {
-      updateBadge('wait', 'Update available');
-      $('updateMessage').textContent = 'A new version is ready. Updating affects only this account’s paired bot.';
-    } else {
-      updateBadge('online', 'Up to date');
-      $('updateMessage').textContent = 'Your bot is using the latest version currently deployed by the server.';
-    }
-  } catch (e) {
-    updateBadge('', 'Unavailable');
-    $('updateMessage').textContent = e.message;
-    $('updateNow').classList.add('hide');
-  } finally {
-    $('checkUpdate').disabled = false;
-  }
-}
-
-$('checkUpdate').onclick = loadUpdateStatus;
-$('updateNow').onclick = async () => {
-  if (!confirm('Update only your paired bot now? Your saved WhatsApp session will be kept.')) return;
-  $('updateNow').disabled = true;
-  $('checkUpdate').disabled = true;
-  $('updateMessage').textContent = 'Installing your update and restarting your bot…';
-  updateBadge('wait', 'Updating…');
-  try {
-    const result = await api('/api/update', {});
-    $('updateMessage').textContent = result.message || 'Update request completed.';
-    await loadUpdateStatus();
-    if (result.reconnecting) {
-      updateBadge('wait', 'Reconnecting…');
-      $('updateMessage').textContent = 'Your update is installed. Your bot is reconnecting with its existing WhatsApp session. This may take a little while.';
-    }
-  } catch (e) {
-    $('updateMessage').textContent = e.message;
-    updateBadge('', 'Update failed');
-  } finally {
-    $('updateNow').disabled = false;
-    $('checkUpdate').disabled = false;
-  }
-};
-
 async function load() {
   let me;
   try { me = await api('/api/me'); } catch (e) { stop(); show('auth'); return; }
@@ -215,10 +151,24 @@ async function load() {
   $('hello').textContent = 'Hello, user +' + me.number + ' 👋';
   $('dsub').textContent = 'Welcome back. This is your personal bot panel.';
   $('mine').textContent = '+' + me.number;
-  if (me.linked && me.connected) { chip('online', 'Bot online'); view('vOn'); stop(); loadUpdateStatus(); }
-  else if (me.linked) { chip('wait', 'Linked · reconnecting…'); view('vOn'); loadUpdateStatus(); poll = poll || setInterval(load, 4000); }
+  showUpdate(me.linked ? me.update : null);
+  if (me.linked && me.connected) { chip('online', 'Bot online'); view('vOn'); stop(); }
+  else if (me.linked) { chip('wait', 'Linked · reconnecting…'); view('vOn'); poll = poll || setInterval(load, 4000); }
   else if (me.waiting && code) { chip('wait', 'Waiting for your code…'); view('vCode'); }
   else { chip('', 'Not linked yet'); view('vLink'); stop(); }
+}
+function showUpdate(u) {
+  const box = $('updBox');
+  if (!u) { box.classList.add('hide'); return; }
+  box.classList.remove('hide');
+  box.classList.toggle('avail', !!u.updateAvailable);
+  const btn = $('upd');
+  if (u.updating || updating) { btn.disabled = true; btn.textContent = 'Updating…'; $('updText').innerHTML = 'Updating <b>your</b> bot — this takes a few seconds.'; return; }
+  btn.textContent = 'UPDATE MY BOT';
+  btn.disabled = !u.updateAvailable;
+  $('updText').innerHTML = u.updateAvailable
+    ? '<b>A new version is available.</b> Updating only affects your bot.'
+    : '✅ Your bot is up to date.';
 }
 function stop() { clearInterval(poll); clearInterval(tick); poll = tick = null; }
 
@@ -241,6 +191,25 @@ $('link').onclick = async () => {
 };
 $('copy').onclick = async () => {
   try { await navigator.clipboard.writeText(code); $('copy').textContent = 'Copied ✓'; setTimeout(() => $('copy').textContent = 'Copy code', 1800); } catch (e) {}
+};
+$('upd').onclick = async () => {
+  if (updating) return;
+  updating = true; $('derr').textContent = '';
+  showUpdate({ updating: true });
+  try {
+    const r = await api('/api/update', {});
+    updating = false;
+    $('derr').textContent = '';
+    showUpdate(r.update);
+    $('updText').innerHTML = r.updated ? '✅ <b>Done!</b> Your bot was updated and is reconnecting.' : '✅ Your bot is already up to date.';
+  } catch (e) {
+    updating = false;
+    $('derr').textContent = e.message;
+    await load();
+    return;
+  }
+  poll = poll || setInterval(load, 4000);
+  setTimeout(load, 1500);
 };
 $('unlink').onclick = async () => {
   if (!confirm('Unlink your bot? You can link it again afterwards.')) return;
