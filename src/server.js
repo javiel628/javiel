@@ -20,6 +20,8 @@ const {
     listSavedSessionIds,
     getAllSessions,
     sendToSelf,
+    getSessionUpdateStatus,
+    updateSession,
 } = require('./session');
 const log = require('./lib/logger');
 const { printBox } = require('./lib/console');
@@ -231,6 +233,30 @@ async function handleApi(req, res, url) {
 
     if (p === '/api/me') {
         return send(res, 200, { number: me, linked: isPaired(me), connected: isConnected(me), waiting: pending.has(me) });
+    }
+
+    // Update controls are scoped to the authenticated account's own WhatsApp number.
+    if (p === '/api/update/status' && req.method === 'GET') {
+        if (!isPaired(me)) return send(res, 409, { error: 'Link your bot before checking for updates.' });
+        try {
+            return send(res, 200, getSessionUpdateStatus(me));
+        } catch (err) {
+            log.error('update', `${me}: status check failed: ${err.message}`);
+            return send(res, 500, { error: 'Could not check this bot version.' });
+        }
+    }
+
+    if (p === '/api/update' && post) {
+        if (limited('update:' + me)) return send(res, 429, { error: 'Too many update requests. Wait a few minutes.' });
+        if (!isPaired(me)) return send(res, 409, { error: 'Link your bot before updating.' });
+        try {
+            const result = await updateSession(me);
+            const status = getSessionUpdateStatus(me);
+            return send(res, 200, { ...result, status });
+        } catch (err) {
+            log.error('update', `${me}: update failed: ${err.stack || err.message}`);
+            return send(res, 502, { error: err.message || 'The update could not be installed.' });
+        }
     }
 
     if (p === '/api/link' && post) {
