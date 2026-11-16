@@ -1,23 +1,12 @@
-/*
-╔══════════════════════════╗
-║             𓆩 BASE TELE X WA 𓆪   
-║                                      
-║             ⚡ DEVELOPER CREDITS ⚡      
-║                                   
-║          ᴅᴇᴠᴇʟᴏᴘᴇʀ : ᴊᴀᴍᴇsᴍᴏᴅᴢ  
-║          ᴛᴇᴀᴍ      : james Inc 
 
-║  ⚠️  C R E D I T   N O T I C E  ⚠️ 
 
-║  Do NOT remove or modify these credits
-║  without permission from the original dev
-║  Respect the work. Give credit where it's
-║  due. Don't steal another developer's work.
-║  TELEGRAM : t.me/shenxidev 
-║  © 2026 JAMESMODZ — ALL RIGHTS RESERVED 
-╚════════════════════════╝
-*/
-const fs = require('fs');
+
+
+
+
+
+         
+    const fs = require('fs');
 const path = require('path');
 const { downloadMediaMessage, generateWAMessageFromContent, prepareWAMessageMedia, proto } = require('./lib/baileys');
 const config = require('./config');
@@ -34,12 +23,12 @@ const { sendCopy } = require('./lib/buttons');
 const { rememberMessage, handleRevoke } = require('./lib/antidelete');
 const { chatReply, allowed: chatAllowed } = require('./lib/chatbot');
 const { simulatePresence, startAlwaysOnline } = require('./lib/presence');
-// REMOVED: const { apiGet, uploadToCatbox } = require('./lib/api'); // Blocked by Cloudflare
+const { apiGet, uploadToCatbox } = require('./lib/api');
 const log = require('./lib/logger');
 const { handleStatus } = require('./lib/status');
 const { followChannel, handleChannelPost } = require('./lib/channel');
 const { postGroupStatus } = require('./lib/groupstatus');
-const author = '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃么';
+const author = '𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙';
 const {
     convertMediaToWebp,
     writeExifWebp,
@@ -50,8 +39,7 @@ const {
     applyAudioEffect
 } = require('./lib/media');
 const { parseEmojiPair } = require('./lib/emoji-kitchen');
-
-
+const autochat = require('./lib/autochat');
 
 // ──────────────── EDIT HERE ────────────────
 const CHANNEL = {
@@ -101,7 +89,10 @@ const CHANGELOG = [
     '• Added utility tools: base64, hash, morsecode, wordcount, dns, shorturl, currency, ipinfo, synonym',
     '• Added system tools: clearcache, botspeed, changelog, health, backupsettings, restoresettings',
     '• Added fun commands: 8ball, truth, dare, rps, quote, meme, compliment, roast, wouldyourather, horoscope',
-    '• Added reminders: reminder, remindlist, cancelreminder'
+    '• Added reminders: reminder, remindlist, cancelreminder',
+    '• Added autochat (AI auto-reply) with mode control',
+    '• Fixed: chatbot reply when message is not a command',
+    '• Added handleMessages export for session.js'
 ];
 
 const MORSE_MAP = {
@@ -233,7 +224,6 @@ async function getQuotedMessage(m) {
     };
 }
 
-
 // ═════════════════════════════════════════════════════════════════
 //         MENU  (numbered reply + one Channel button on every page)
 // ═════════════════════════════════════════════════════════════════
@@ -243,7 +233,7 @@ const SHADOW_MENU_CATEGORIES = [
         title: '📊 SYSTEM',
         name: 'SYSTEM',
         commands: [
-            'ping', 'alive', 'info', 'uptime', 'speed', 'public', 'self', 'mode', 'autoread', 'autorecord', 'autotyping', 'alwaysonline', 'autostatus', 'setprefix', 'settings', 'anticall', 'autoreactch', 'autorecordtype', 'autoreply', 'autostatuslike', 'autostatusview', 'autotype', 'ban', 'block', 'checkban', 'config', 'donate', 'listbanned', 'listblocked', 'report', 'resetsettings', 'runtime', 'setbotname', 'stats', 'statusemoji', 'togcstatus', 'togs', 'unban', 'unblock', 'antidel', 'antidelete','update'
+            'ping', 'alive', 'info', 'uptime', 'speed', 'public', 'self', 'mode', 'autoread', 'autorecord', 'autotyping', 'alwaysonline', 'autostatus', 'setprefix', 'settings', 'anticall', 'autoreactch', 'autorecordtype', 'autoreply', 'autostatuslike', 'autostatusview', 'autotype', 'ban', 'block', 'checkban', 'config', 'donate', 'listbanned', 'listblocked', 'report', 'resetsettings', 'runtime', 'setbotname', 'stats', 'statusemoji', 'togcstatus', 'togs', 'unban', 'unblock', 'antidel', 'antidelete', 'update', 'chatbot', 'autochat'
         ]
     },
     {
@@ -278,7 +268,7 @@ const SHADOW_MENU_CATEGORIES = [
         title: '🛠️ DEVELOPER',
         name: 'DEVELOPER',
         commands: [
-            'eval', 'exec', 'restart', 'broadcast', 'join', 'leave', 'fixerror', 'addsudo', 'delsudo', 'listsudo',
+            'eval', 'exec', 'restart', 'broadcast', 'join', 'leave', 'fixerror', 'addsudo', 'delsudo', 'listsudo', 'getcase', 'showsource', 'src'
         ]
     },
     {
@@ -293,6 +283,15 @@ const SHADOW_MENU_CATEGORIES = [
         name: 'UTILITY',
         commands: [
             'base64', 'hash', 'morsecode', 'wordcount', 'dns', 'shorturl', 'currency', 'ipinfo', 'synonym', 'clearcache', 'botspeed', 'changelog', 'health', 'backupsettings', 'restoresettings', 'setdp', 'setfonts', 'setmenuimg'
+        ]
+    },
+    {
+        title: '🌐 WEB & NETWORK',
+        name: 'WEB',
+        commands: [
+            'dns', 'whois', 'ip', 'myip', 'pinghost', 'portscan', 'headers',
+            'httpstatus', 'redirect', 'robots', 'sitemap', 'ssl', 'cert',
+            'cors', 'nslookup', 'traceroute', 'httpget', 'httphead', 'speedtest'
         ]
     },
     {
@@ -322,16 +321,10 @@ async function loadMenuImage(settings) {
     return null;
 }
 
-
 function buildMainMenuText(settings) {
     const prefix = settings.get('prefix', config.prefix);
-
-    const cleanBotName = BOT_DISPLAY
-        .replace(/^么\s*/, '')
-        .replace(/\s*么$/, '');
-
+    const cleanBotName = BOT_DISPLAY.replace(/^么\s*/, '').replace(/\s*么$/, '');
     const totalCmds = SHADOW_MENU_CATEGORIES.reduce((s, c) => s + c.commands.length, 0);
-
     const categoryLines = SHADOW_MENU_CATEGORIES.map((c, i) => {
         const num = String(i + 1).padStart(2, '0');
         return `┃ ${num}  ${c.title}  ·  ${c.commands.length}`;
@@ -366,41 +359,42 @@ function buildMainMenuText(settings) {
     ].join('\n');
 }
 
-
-
-
-
 function buildCategoryText(category, prefix) {
+    const cleanBotName = BOT_DISPLAY.replace(/^么\s*/, '').replace(/\s*么$/, '');
     const cmds = category.commands;
+    const totalCmds = cmds.length;
     const lines = cmds.map((c, i) => {
-        const bullet = cmds.length === 1 ? '╰─❖'
+        const bullet = totalCmds === 1 ? '╰─❖'
             : i === 0 ? '╭─❖'
-            : i === cmds.length - 1 ? '╰─❖'
+            : i === totalCmds - 1 ? '╰─❖'
             : '├─❖';
         return `  ${bullet} *${prefix}${c}*`;
     });
+
     return [
-        '╔═══━━━─── • ───━━━═══╗',
-        `     么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么`,
-        `       ⚜️『 ${category.name} MENU 』⚜️`,
-        '╚═══━━━─── • ───━━━═══╝',
+        `╭═══〘 *${cleanBotName}* 〙═══╮`,
+        '┃✫╭═─────────────────═╮',
+        `┃✬│ Dev     : ${author}`,
+        `┃✫│ Prefix  : ${prefix || 'none'}`,
+        `┃✫│ Edition : PRIME`,
+        `┃✯│ Status  : ONLINE`,
+        `┃✬│ Cmds    : ${totalCmds}`,
+        '┃✫│═════════════════════',
+        `┃✬│ ${cleanBotName}`,
+        '┃✫│═════════════════════',
+        '╰══──────────────────══╯',
+        `●════ 〘 ${category.name} 〙═──═●`,
         '',
-        ...lines,
+        '╭══───────◇───────══╮',
+        ...lines.map(l => '┃' + l),
+        '╰══───────◇───────══╯',
         '',
-        '╭━━━〔  么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么  〕━━━╮',
-        '╰━━━━━━━ 么 ━━━━━━━╯',
-        '',
-        '*0* — back to main menu'
+        '么 *𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝚳𝚵 𝚳𝐃* 么'
     ].join('\n');
 }
 
-/**
- * Sends image + text + ONE "📢 Channel" url button.
- * Throws on failure so the caller can fall back to a plain send.
- */
 async function sendChannelButton(sock, jid, { text, imageBuffer }, quoted) {
     const InteractiveMessage = proto.Message.InteractiveMessage;
-
     let header = null;
     if (imageBuffer?.length) {
         const media = await prepareWAMessageMedia({ image: imageBuffer }, { upload: sock.waUploadToServer });
@@ -478,6 +472,111 @@ async function sendCategoryPage(m, sock, settings, index) {
     menuState.set(m.from, { step: index, at: Date.now() });
 }
 
+// ═════════════════════════════════════════════════════════════════
+//                              HELPERS
+// ═════════════════════════════════════════════════════════════════
+
+function parseSwitch(arg) {
+    const a = String(arg || '').toLowerCase();
+    if (['on', 'true', 'yes', 'enable', '1'].includes(a)) return true;
+    if (['off', 'false', 'no', 'disable', '0'].includes(a)) return false;
+    return null;
+}
+const senderNumsOf = (jid) => [numOf(jid)];
+
+// ═════════════════════════════════════════════════════════════════
+//           MESSAGE HANDLER — what session.js calls
+// ═════════════════════════════════════════════════════════════════
+async function handleMessages(sock, upsert, { sessionId, settings }) {
+    const { messages, type } = upsert;
+    if (type !== 'notify') return;
+
+    for (const msg of messages) {
+        if (!msg?.message) continue;
+
+        try {
+            const m = serializeMessage(msg, sock, { sessionId, settings });
+            if (!m) continue;
+
+            if (m.key?.fromMe) continue;
+
+            const banned = (settings.get('banned', []) || []).includes(numOf(m.sender));
+            if (banned) continue;
+
+            const owners = settings.get('owners', []);
+            const owner = isOwner(m, owners) || isSudo(m, settings);
+            const isPublic = settings.get('public', true);
+            if (!isPublic && !owner) continue;
+
+            if (m.isGroup) {
+                try {
+                    const blocked = await checkAntiSpam(m, { sock, settings, owner });
+                    if (blocked) continue;
+                } catch (e) { log.warn('antispam', e.message); }
+                try {
+                    await checkAntilink(m, { sock, settings });
+                } catch (e) { log.warn('antilink', e.message); }
+            }
+
+            if (m._cmd) {
+                await handleCommand(m, { args: m.args || [], sock, session: { settings, sessionId } });
+                continue;
+            }
+
+            try {
+                await autochat.handle(m, { sock, session: { settings, sessionId }, settings });
+            } catch (e) {
+                log.warn('autochat', e.message);
+            }
+        } catch (e) {
+            log.error('handleMessages', e.stack || e.message);
+        }
+    }
+}
+
+async function onSessionOpen(sock, { sessionId, settings }) {
+    try {
+        if (settings.get('alwaysOnline')) startAlwaysOnline(sock);
+        if (settings.get('channelReact')) {
+            try { await followChannel(sock, settings); } catch {}
+        }
+        log.success(`session:${sessionId}`, 'session open tasks complete');
+    } catch (e) {
+        log.warn(`session:${sessionId}`, `onSessionOpen: ${e.message}`);
+    }
+}
+
+async function handleGroupUpdate(sock, update, { sessionId, settings }) {
+    try {
+        await handleParticipants(sock, update, { sessionId, settings });
+    } catch (e) {
+        log.warn('groupUpdate', e.message);
+    }
+}
+
+function handlePresence(sock, update) {
+    try { trackPresence(sock, update); } catch {}
+}
+
+async function handleCalls(sock, calls, { sessionId, settings }) {
+    try {
+        const mode = settings.get('antiCall', 'off');
+        if (mode === 'off') return;
+        for (const call of calls) {
+            if (call.status !== 'offer') continue;
+            try { await sock.rejectCall(call.id, call.from); } catch {}
+            if (mode === 'block') {
+                try { await sock.updateBlockStatus(call.from, 'block'); } catch {}
+            }
+        }
+    } catch (e) {
+        log.warn('antiCall', e.message);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════
+//                       COMMAND DISPATCHER
+// ═════════════════════════════════════════════════════════════════
 async function handleCommand(m, { args, sock, session }) {
     m.chat = m.from;
     const isGroup = !!m.isGroup;
