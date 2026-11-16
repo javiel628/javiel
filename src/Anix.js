@@ -2676,6 +2676,15 @@ _© ${botName(settings, config)}_
     }
 }
 
-
+module.exports = async (sock, m, chatUpdate, store) => {
+    try {
+        // ... your message parsing logic ...
+        if (m._cmd) {
+            await handleCommand(m, { args: m._args, sock, session: { settings, sessionId } });
+        }
+    } catch (err) {
+        log.error('main', err);
+    }
+};
 
 
