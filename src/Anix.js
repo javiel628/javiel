@@ -1,12 +1,4 @@
-
-
-
-
-
-
-
-         
-    const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const { downloadMediaMessage, generateWAMessageFromContent, prepareWAMessageMedia, proto } = require('./lib/baileys');
 const config = require('./config');
