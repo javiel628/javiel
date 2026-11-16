@@ -3,48 +3,444 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Link your bot</title>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<title>Link your bot · Baileys Pair</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f5f3ff;--card:#ffffffcc;--ink:#1e1b3a;--dim:#6b678a;--line:#e3def7;--a:#6d4aff;--b:#ff5fa2;--ok:#12a36b;--warn:#e98a15;--bad:#e5484d}
-@media(prefers-color-scheme:dark){:root{--bg:#120f24;--card:#1d1938cc;--ink:#f1eeff;--dim:#a29fc4;--line:#2f2a55;--a:#8d72ff;--b:#ff7ab6}}
-*{box-sizing:border-box;margin:0}
-body{min-height:100vh;display:grid;place-items:center;padding:20px;font-family:Outfit,system-ui,sans-serif;color:var(--ink);background:var(--bg);position:relative;overflow-x:hidden}
-body:before,body:after{content:"";position:fixed;width:46vmax;height:46vmax;border-radius:50%;filter:blur(90px);opacity:.45;z-index:-1}
-body:before{background:var(--a);top:-18vmax;left:-12vmax}body:after{background:var(--b);bottom:-20vmax;right:-14vmax}
-.card{width:100%;max-width:430px;background:var(--card);border:1px solid var(--line);border-radius:26px;padding:30px 26px;backdrop-filter:blur(14px);box-shadow:0 20px 60px rgba(109,74,255,.18)}
-.logo{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;font-size:26px;margin:0 auto 14px;background:linear-gradient(135deg,var(--a),var(--b))}
-h1{font-size:1.55rem;text-align:center;font-weight:700}
-.sub{text-align:center;color:var(--dim);font-size:.93rem;margin:6px 0 22px}
-.tabs{display:grid;grid-template-columns:1fr 1fr;background:var(--line);border-radius:14px;padding:4px;margin-bottom:18px}
-.tabs button{border:0;background:none;padding:10px;border-radius:11px;font:600 .9rem Outfit,sans-serif;color:var(--dim);cursor:pointer}
-.tabs button.on{background:var(--card);color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.08)}
-label{display:block;font-size:.8rem;font-weight:600;color:var(--dim);margin:0 0 6px 2px}
-input{width:100%;padding:14px;margin-bottom:14px;border-radius:13px;border:1.5px solid var(--line);background:transparent;color:var(--ink);font:500 1rem Outfit,sans-serif;outline:none;transition:.2s}
-input:focus{border-color:var(--a);box-shadow:0 0 0 4px rgba(109,74,255,.15)}
-.hint{font-size:.78rem;color:var(--dim);margin:-8px 2px 14px}
-.btn{width:100%;padding:15px;border:0;border-radius:14px;font:700 1rem Outfit,sans-serif;color:#fff;cursor:pointer;background:linear-gradient(135deg,var(--a),var(--b));transition:.2s}
-.btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 10px 24px rgba(109,74,255,.35)}.btn:disabled{opacity:.55;cursor:wait}
-.link{background:none;border:0;color:var(--dim);font:500 .85rem Outfit,sans-serif;cursor:pointer;margin-top:14px;width:100%;text-decoration:underline}
-.err{color:var(--bad);font-size:.85rem;text-align:center;min-height:1.2em;margin-top:12px}
-.chip{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:99px;font-size:.85rem;font-weight:600;border:1px solid var(--line);margin:0 auto 20px}
-.dot{width:9px;height:9px;border-radius:50%;background:var(--dim)}
-.on .dot,.chip.online .dot{background:var(--ok);box-shadow:0 0 0 4px rgba(18,163,107,.2)}.chip.wait .dot{background:var(--warn)}
+:root{
+  --bg:#08070d;
+  --card:rgba(15, 12, 24, 0.72);
+  --card-border:rgba(255, 255, 255, 0.12);
+  --ink:#f8fafc;
+  --dim:#94a3b8;
+  --line:rgba(255, 255, 255, 0.1);
+  --input-bg:rgba(255, 255, 255, 0.04);
+  --a:#ff2a5f;
+  --a-glow:rgba(255, 42, 95, 0.35);
+  --b:#8b5cf6;
+  --b-glow:rgba(139, 92, 246, 0.35);
+  --ok:#10b981;
+  --warn:#f59e0b;
+  --bad:#f43f5e;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+
+body{
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+  padding:24px 16px;
+  font-family:'Outfit',system-ui,sans-serif;
+  color:var(--ink);
+  background:var(--bg);
+  position:relative;
+  overflow-x:hidden;
+}
+
+/* Background video & overlay */
+.video-wrapper{
+  position:fixed;
+  inset:0;
+  width:100vw;
+  height:100vh;
+  z-index:-2;
+  overflow:hidden;
+}
+.video-wrapper video{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  transform:scale(1.03);
+  filter:brightness(0.85) contrast(1.1);
+}
+.video-overlay{
+  position:fixed;
+  inset:0;
+  z-index:-1;
+  background:radial-gradient(circle at center, rgba(10, 8, 18, 0.62) 0%, rgba(8, 7, 13, 0.88) 100%),
+             linear-gradient(180deg, rgba(8, 7, 13, 0.4) 0%, rgba(8, 7, 13, 0.75) 100%);
+  backdrop-filter:blur(2px);
+}
+
+/* Audio control toggle */
+.audio-btn{
+  position:fixed;
+  top:20px;
+  right:20px;
+  z-index:50;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 16px;
+  background:rgba(20, 16, 32, 0.65);
+  border:1px solid var(--card-border);
+  backdrop-filter:blur(16px);
+  border-radius:99px;
+  color:var(--ink);
+  font:600 0.82rem 'Outfit',sans-serif;
+  cursor:pointer;
+  transition:all 0.25s ease;
+  box-shadow:0 8px 24px rgba(0,0,0,0.4);
+}
+.audio-btn:hover{
+  background:rgba(30, 24, 48, 0.85);
+  border-color:var(--a);
+  transform:translateY(-2px);
+  box-shadow:0 10px 28px var(--a-glow);
+}
+.audio-icon{
+  font-size:1.05rem;
+  line-height:1;
+}
+
+/* Main Card */
+.card{
+  width:100%;
+  max-width:440px;
+  background:var(--card);
+  border:1px solid var(--card-border);
+  border-radius:28px;
+  padding:36px 30px;
+  backdrop-filter:blur(24px);
+  -webkit-backdrop-filter:blur(24px);
+  box-shadow:0 25px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 42, 95, 0.12);
+  position:relative;
+  animation:fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeUp{
+  from{opacity:0;transform:translateY(24px) scale(0.97)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+
+/* Logo icon with glow */
+.logo{
+  width:64px;
+  height:64px;
+  border-radius:20px;
+  display:grid;
+  place-items:center;
+  font-size:30px;
+  margin:0 auto 18px;
+  background:linear-gradient(135deg, var(--a), var(--b));
+  box-shadow:0 0 28px var(--a-glow), 0 0 12px var(--b-glow);
+  position:relative;
+  animation:pulseLogo 3s ease-in-out infinite;
+}
+@keyframes pulseLogo{
+  0%,100%{transform:scale(1);box-shadow:0 0 28px var(--a-glow)}
+  50%{transform:scale(1.05);box-shadow:0 0 40px rgba(255, 42, 95, 0.6), 0 0 20px var(--b-glow)}
+}
+
+h1{
+  font-size:1.75rem;
+  text-align:center;
+  font-weight:800;
+  letter-spacing:-0.02em;
+  background:linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+
+.sub{
+  text-align:center;
+  color:var(--dim);
+  font-size:0.92rem;
+  margin:8px 0 24px;
+  line-height:1.45;
+}
+
+/* Tabs */
+.tabs{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  background:rgba(255, 255, 255, 0.05);
+  border:1px solid rgba(255, 255, 255, 0.08);
+  border-radius:16px;
+  padding:4px;
+  margin-bottom:22px;
+}
+.tabs button{
+  border:0;
+  background:none;
+  padding:11px;
+  border-radius:12px;
+  font:600 0.88rem 'Outfit',sans-serif;
+  color:var(--dim);
+  cursor:pointer;
+  transition:all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.tabs button.on{
+  background:linear-gradient(135deg, rgba(255, 42, 95, 0.25), rgba(139, 92, 246, 0.25));
+  border:1px solid rgba(255, 42, 95, 0.4);
+  color:#fff;
+  box-shadow:0 4px 16px rgba(0,0,0,0.3);
+}
+
+/* Form inputs */
+label{
+  display:block;
+  font-size:0.8rem;
+  font-weight:600;
+  color:#cbd5e1;
+  margin:0 0 7px 2px;
+  letter-spacing:0.02em;
+  text-transform:uppercase;
+}
+input{
+  width:100%;
+  padding:15px 16px;
+  margin-bottom:14px;
+  border-radius:14px;
+  border:1.5px solid var(--line);
+  background:var(--input-bg);
+  color:var(--ink);
+  font:500 0.98rem 'Outfit',sans-serif;
+  outline:none;
+  transition:all 0.22s ease;
+}
+input:focus{
+  border-color:var(--a);
+  background:rgba(255, 255, 255, 0.07);
+  box-shadow:0 0 0 4px rgba(255, 42, 95, 0.2), 0 0 20px var(--a-glow);
+}
+input::placeholder{
+  color:rgba(148, 163, 184, 0.55);
+}
+
+.hint{
+  font-size:0.78rem;
+  color:var(--dim);
+  margin:-8px 2px 16px;
+  line-height:1.4;
+}
+
+/* Action button */
+.btn{
+  width:100%;
+  padding:16px;
+  border:0;
+  border-radius:15px;
+  font:700 1rem 'Outfit',sans-serif;
+  color:#fff;
+  cursor:pointer;
+  background:linear-gradient(135deg, var(--a), var(--b));
+  transition:all 0.25s ease;
+  position:relative;
+  overflow:hidden;
+  box-shadow:0 8px 24px rgba(255, 42, 95, 0.35);
+}
+.btn::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transform:translateX(-100%);
+  transition:transform 0.5s ease;
+}
+.btn:hover:not(:disabled)::after{
+  transform:translateX(100%);
+}
+.btn:hover:not(:disabled){
+  transform:translateY(-2px);
+  box-shadow:0 12px 32px rgba(255, 42, 95, 0.5), 0 0 20px rgba(139, 92, 246, 0.4);
+}
+.btn:active:not(:disabled){
+  transform:translateY(0);
+}
+.btn:disabled{
+  opacity:0.55;
+  cursor:wait;
+}
+
+.ghost{
+  background:rgba(255, 255, 255, 0.05);
+  color:var(--ink);
+  border:1.5px solid var(--line);
+  box-shadow:none;
+}
+.ghost:hover:not(:disabled){
+  background:rgba(255, 255, 255, 0.1);
+  border-color:rgba(255, 255, 255, 0.25);
+  box-shadow:0 6px 20px rgba(0,0,0,0.3);
+}
+
+.link{
+  background:none;
+  border:0;
+  color:var(--dim);
+  font:500 0.85rem 'Outfit',sans-serif;
+  cursor:pointer;
+  margin-top:16px;
+  width:100%;
+  text-decoration:none;
+  transition:color 0.2s;
+  text-align:center;
+  display:block;
+}
+.link:hover{
+  color:#fff;
+  text-decoration:underline;
+}
+
+.err{
+  color:var(--bad);
+  font-size:0.85rem;
+  text-align:center;
+  min-height:1.2em;
+  margin-top:14px;
+  font-weight:500;
+}
+
+/* Status chip */
+.chip{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 16px;
+  border-radius:99px;
+  font-size:0.85rem;
+  font-weight:600;
+  border:1px solid var(--line);
+  background:rgba(255, 255, 255, 0.04);
+  margin:0 auto 20px;
+}
+.dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:var(--dim);
+}
+.chip.online .dot{
+  background:var(--ok);
+  box-shadow:0 0 10px var(--ok), 0 0 20px rgba(16, 185, 129, 0.5);
+}
+.chip.wait .dot{
+  background:var(--warn);
+  box-shadow:0 0 10px var(--warn);
+}
+
 .center{text-align:center}
-.code{display:flex;gap:6px;justify-content:center;margin:6px 0 4px}
-.code span{width:38px;height:50px;display:grid;place-items:center;font:700 1.4rem ui-monospace,Menlo,monospace;border-radius:11px;background:var(--bg);border:1.5px solid var(--line)}
-.code i{align-self:center;color:var(--dim)}
-ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16px 0}
-.hide{display:none}
-.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
-.upd{margin-top:16px;padding:14px;border:1.5px solid var(--line);border-radius:16px}
-.upd.avail{border-color:var(--a)}
-.upd p{font-size:.82rem;color:var(--dim);margin-bottom:10px}
-.upd p b{color:var(--ink)}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.row .btn{padding:12px;font-size:.9rem}
+
+/* Pairing code display */
+.code-wrap{
+  margin:16px 0;
+  position:relative;
+}
+.code{
+  display:flex;
+  gap:7px;
+  justify-content:center;
+  align-items:center;
+  margin:10px 0 8px;
+  flex-wrap:nowrap;
+}
+.code span{
+  width:42px;
+  height:54px;
+  display:grid;
+  place-items:center;
+  font:700 1.45rem 'JetBrains Mono',ui-monospace,Menlo,monospace;
+  border-radius:12px;
+  background:rgba(255, 255, 255, 0.06);
+  border:1.5px solid rgba(255, 42, 95, 0.35);
+  box-shadow:0 4px 15px rgba(0,0,0,0.4), inset 0 0 10px rgba(255, 42, 95, 0.12);
+  color:#fff;
+  text-shadow:0 0 12px rgba(255, 42, 95, 0.6);
+  transition:all 0.2s;
+}
+.code span:hover{
+  transform:translateY(-2px);
+  border-color:var(--a);
+  box-shadow:0 8px 20px var(--a-glow);
+}
+.code i{
+  align-self:center;
+  color:var(--a);
+  font-weight:700;
+  font-size:1.3rem;
+  font-style:normal;
+  padding:0 2px;
+}
+
+ol{
+  padding-left:22px;
+  color:var(--dim);
+  font-size:0.88rem;
+  line-height:1.75;
+  margin:18px 0;
+  text-align:left;
+  background:rgba(255, 255, 255, 0.03);
+  padding:14px 14px 14px 34px;
+  border-radius:16px;
+  border:1px solid rgba(255, 255, 255, 0.06);
+}
+ol li{
+  margin-bottom:4px;
+}
+ol b{
+  color:#fff;
+}
+
+.hide{display:none !important}
+
+/* Update box */
+.upd{
+  margin-top:18px;
+  padding:16px;
+  border:1.5px solid var(--line);
+  border-radius:18px;
+  background:rgba(255, 255, 255, 0.03);
+  text-align:center;
+}
+.upd.avail{
+  border-color:var(--a);
+  background:rgba(255, 42, 95, 0.06);
+  box-shadow:0 0 20px rgba(255, 42, 95, 0.15);
+}
+.upd p{
+  font-size:0.84rem;
+  color:var(--dim);
+  margin-bottom:12px;
+}
+.upd p b{
+  color:#fff;
+}
+
+/* Subtle footer */
+.footer-badge{
+  text-align:center;
+  margin-top:20px;
+  font-size:0.75rem;
+  color:rgba(148, 163, 184, 0.6);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+}
+.footer-badge span{
+  color:var(--a);
+}
 </style>
 </head>
 <body>
+
+<!-- Video Background -->
+<div class="video-wrapper">
+  <video id="bgVideo" autoplay loop muted playsinline>
+    <source src="https://files.catbox.moe/3cx6nm.mp4" type="video/mp4">
+  </video>
+</div>
+<div class="video-overlay"></div>
+
+<!-- Ambient Audio Toggle -->
+<button class="audio-btn" id="audioToggle" title="Toggle audio">
+  <span class="audio-icon" id="audioIcon">🔇</span>
+  <span id="audioText">Unmute Sound</span>
+</button>
+
 <main class="card">
   <div class="logo">🤖</div>
 
@@ -52,19 +448,30 @@ ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16
   <section id="auth">
     <h1>Welcome</h1>
     <p class="sub">Create your account with your WhatsApp number</p>
-    <div class="tabs"><button id="tReg" class="on">Create account</button><button id="tLog">Log in</button></div>
+    <div class="tabs">
+      <button id="tReg" class="on">Create account</button>
+      <button id="tLog">Log in</button>
+    </div>
+    
     <label for="num">WhatsApp number</label>
-    <input id="num" type="tel" inputmode="numeric" placeholder="254712345678" autocomplete="username">
+    <input id="num" type="tel" inputmode="numeric" placeholder="e.g. 254712345678" autocomplete="username">
     <p class="hint">Country code first, digits only (no + or spaces).</p>
+    
     <label for="pw">Password</label>
     <input id="pw" type="password" placeholder="At least 8 characters" autocomplete="current-password">
+    
     <div id="codeBox" class="hide">
       <label for="vcode">Verification code</label>
       <input id="vcode" inputmode="numeric" maxlength="6" placeholder="6-digit code">
       <p class="hint">We sent it to your WhatsApp (open “Message yourself”).</p>
     </div>
+    
     <button class="btn" id="go">Create account</button>
     <p class="err" id="aerr"></p>
+    
+    <div class="footer-badge">
+      <span>🔒</span> Protected End-to-End Pairing
+    </div>
   </section>
 
   <!-- dashboard -->
@@ -75,13 +482,15 @@ ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16
 
     <div id="vLink">
       <button class="btn" id="link">Link bot</button>
-      <p class="hint center" style="margin-top:12px">You’ll pair this number only. One account, one bot.</p>
+      <p class="hint center" style="margin-top:14px">You’ll pair this number only. One account, one bot.</p>
     </div>
 
     <div id="vCode" class="hide">
-      <p class="center" style="font-weight:600">Your pairing code</p>
-      <div class="code" id="code"></div>
-      <p class="hint center" id="timer"></p>
+      <p class="center" style="font-weight:600; font-size:1.05rem; letter-spacing:0.02em;">Your pairing code</p>
+      <div class="code-wrap">
+        <div class="code" id="code"></div>
+      </div>
+      <p class="hint center" id="timer" style="color:var(--a); font-weight:600;"></p>
       <ol>
         <li>Open WhatsApp on <b id="mine"></b></li>
         <li>Settings → Linked devices → Link a device</li>
@@ -92,13 +501,13 @@ ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16
     </div>
 
     <div id="vOn" class="hide center">
-      <p style="font-size:2.4rem">✅</p>
-      <p class="sub" style="margin-bottom:6px">Your bot is linked and running 24/7.</p>
+      <p style="font-size:2.8rem; filter:drop-shadow(0 0 15px rgba(16,185,129,0.5))">✅</p>
+      <p class="sub" style="margin-bottom:8px; color:#fff; font-weight:600;">Your bot is linked and running 24/7.</p>
       <div class="upd" id="updBox">
         <p id="updText"></p>
         <button class="btn" id="upd">UPDATE MY BOT</button>
       </div>
-      <button class="btn ghost" id="unlink" style="margin-top:12px">Unlink bot</button>
+      <button class="btn ghost" id="unlink" style="margin-top:14px">Unlink bot</button>
     </div>
 
     <button class="link" id="out">Log out</button>
@@ -107,6 +516,27 @@ ol{padding-left:20px;color:var(--dim);font-size:.88rem;line-height:1.7;margin:16
 </main>
 
 <script>
+// Ambient Audio handling
+const bgVideo = document.getElementById('bgVideo');
+const audioToggle = document.getElementById('audioToggle');
+const audioIcon = document.getElementById('audioIcon');
+const audioText = document.getElementById('audioText');
+
+if (audioToggle && bgVideo) {
+  audioToggle.onclick = () => {
+    bgVideo.muted = !bgVideo.muted;
+    if (bgVideo.muted) {
+      audioIcon.textContent = '🔇';
+      audioText.textContent = 'Unmute Sound';
+    } else {
+      audioIcon.textContent = '🔊';
+      audioText.textContent = 'Mute Sound';
+      bgVideo.play().catch(() => {});
+    }
+  };
+}
+
+// Bot pairing script (Original API & Logic preserved)
 const $ = id => document.getElementById(id);
 let mode = 'register', poll = null, tick = null, code = '', updating = false;
 
@@ -190,7 +620,17 @@ $('link').onclick = async () => {
   $('link').disabled = false;
 };
 $('copy').onclick = async () => {
-  try { await navigator.clipboard.writeText(code); $('copy').textContent = 'Copied ✓'; setTimeout(() => $('copy').textContent = 'Copy code', 1800); } catch (e) {}
+  try { 
+    await navigator.clipboard.writeText(code); 
+    $('copy').textContent = 'Copied ✓'; 
+    $('copy').style.borderColor = 'var(--ok)';
+    $('copy').style.color = 'var(--ok)';
+    setTimeout(() => { 
+      $('copy').textContent = 'Copy code'; 
+      $('copy').style.borderColor = '';
+      $('copy').style.color = '';
+    }, 1800); 
+  } catch (e) {}
 };
 $('upd').onclick = async () => {
   if (updating) return;
