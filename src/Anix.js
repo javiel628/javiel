@@ -1545,6 +1545,68 @@ async function handleCommand(m, { args, sock, session }) {
 
 
 
+case 'chatbot':
+case 'autochat': {
+    if (!owner) return m.reply('⛔ Owner only.');
+    const P = settings.get('prefix', config.prefix);
+    const current = settings.get('autoReply', 'off');
+    const mode = current === true ? 'all' : String(current || 'off');
+    const arg = (args[0] || '').toLowerCase();
+
+    const modes = {
+        off:     '❌ OFF',
+        dm:      '📩 DMs only',
+        mention: '💬 When @mentioned',
+        reply:   '↩️ When replying to bot',
+        trigger: '🔑 Keyword trigger',
+        all:     '🌍 Every message',
+    };
+
+    if (!arg || arg === 'status') {
+        return m.reply(
+            `╭━━━〔 🤖 *AUTO CHAT* 〕━━━╮\n` +
+            `┃\n` +
+            `┃  📌 Status: *${modes[mode] || '❌ OFF'}*\n` +
+            `┃\n` +
+            `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
+            `*Modes:*\n` +
+            `• ${P}chatbot off\n` +
+            `• ${P}chatbot dm       (DMs only)\n` +
+            `• ${P}chatbot mention  (@mentions in groups)\n` +
+            `• ${P}chatbot reply    (replying to bot)\n` +
+            `• ${P}chatbot trigger  (keyword)\n` +
+            `• ${P}chatbot all      (everything)`
+        );
+    }
+
+    if (arg === 'reset') {
+        require('./lib/autochat').clearHistory(sessionId, m.from);
+        return m.reply('✅ Chat history cleared.');
+    }
+
+    if (arg === 'persona') {
+        const text = args.slice(1).join(' ').trim().slice(0, 200);
+        if (!text) return m.reply(`Usage: ${P}chatbot persona <text>`);
+        settings.set('chatPersona', text);
+        return m.reply(`✅ Persona set:\n\n_"${text}"_`);
+    }
+
+    if (arg === 'trigger') {
+        const words = args.slice(1).join(' ').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        if (!words.length) return m.reply(`Usage: ${P}chatbot trigger bot,hey,anime`);
+        settings.set('chatTriggers', words);
+        return m.reply(`✅ Triggers: ${words.map(w => '`' + w + '`').join(', ')}`);
+    }
+
+    if (!modes[arg]) {
+        return m.reply(`❌ Unknown mode *${arg}*. Use: off, dm, mention, reply, trigger, all`);
+    }
+
+    settings.set('autoReply', arg);
+    return m.reply(`✅ Auto-chat mode: *${modes[arg]}*`);
+}
+
+                
 
                 
         // ───────────────────────── utility ─────────────────────────
