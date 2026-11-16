@@ -50,6 +50,7 @@ const {
     applyAudioEffect
 } = require('./lib/media');
 const { parseEmojiPair } = require('./lib/emoji-kitchen');
+const autochat = require('./lib/autochat');
 
 
 
