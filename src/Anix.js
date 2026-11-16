@@ -2666,25 +2666,147 @@ _© ${botName(settings, config)}_
             }
         }
 
-        // Fallback for unhandled commands
-        default:
-            return m.reply(`❌ Unknown command: *${P}${cmd}*\nType *${P}menu* to see all available commands.`);
+        
+default:
+            return;
         }
-    } catch (err) {
-        log.error('command-handler', err.stack || err.message);
-        return m.reply(`❌ An error occurred while executing this command.`);
+    } catch (cmdErr) {
+        log.error("command:" + cmd, cmdErr.stack || cmdErr.message);
+        return m.reply(`⚠️ Command *${P}${cmd}* encountered an error:\n${cmdErr.message || "An unexpected error occurred."}`);
     }
 }
 
-module.exports = async (sock, m, chatUpdate, store) => {
-    try {
-        // ... your message parsing logic ...
-        if (m._cmd) {
-            await handleCommand(m, { args: m._args, sock, session: { settings, sessionId } });
-        }
-    } catch (err) {
-        log.error('main', err);
+
+/** AI auto-reply for messages that are not commands. */
+async function maybeChatbot(m, { sock, settings, sessionId, owner }) {
+    if (!settings.get('autoReply', false) || m.fromMe || !m.body || m.body.length > 600) return;
+    if (!settings.get('public', true) && !owner) return;
+    if (!['conversation', 'extendedTextMessage'].includes(m.type)) return;
+
+    if (m.isGroup) {
+        // in groups only when the bot is @mentioned or replied to
+        const ctx = m.raw.message?.[m.type]?.contextInfo;
+        const mine = ownNums(sock);
+        const mentioned = (ctx?.mentionedJid || []).some((j) => mine.includes(numOf(j)));
+        const repliedToMe = ctx?.quotedMessage && mine.includes(numOf(ctx.participant));
+        if (!mentioned && !repliedToMe) return;
     }
-};
+    if (!chatAllowed(m.from)) return;
 
+    const text = m.body.replace(/@\d{6,}/g, '').trim(); // drop the @mention itself
+    if (!text) return;
+    try {
+        sock.sendPresenceUpdate('composing', m.from).catch(() => {});
+        const answer = await chatReply(sessionId, m.from, text);
+        await m.reply(answer);
+    } catch (err) {
+        log.warn('chatbot', err.message);
+    } finally {
+        sock.sendPresenceUpdate('paused', m.from).catch(() => {});
+    }
+}
 
+async function handleMessages(sock, { messages, type }, session) {
+    if (type !== 'notify') return;
+    const { settings, sessionId } = session;
+
+    for (const raw of messages) {
+        try {
+            if (handleStatus(sock, raw, settings)) continue; // status@broadcast: auto view / like
+            if (handleChannelPost(sock, raw, CHANNEL, settings)) continue; // channel post: auto react
+            if (await handleRevoke(sock, sessionId, raw, settings)) continue; // someone deleted a message (anti-delete)
+            const pm = raw.message?.protocolMessage;
+            if (pm?.editedMessage && raw.key.remoteJid?.endsWith('@g.us')) {
+                // a message was EDITED: if it now contains a link, remove it (the classic antilink bypass)
+                const who = { fromMe: !!raw.key.fromMe, sender: raw.key.participant, senderAlt: raw.key.participantAlt || raw.key.participantPn };
+                const own = isOwner(who, settings.get('owners', [])) || isSudo(who, settings);
+                await checkEditedLink(sock, raw, settings, own);
+                continue;
+            }
+            await rememberMessage(sock, sessionId, raw, settings); // keep it in case it gets deleted
+
+            // Handle native-flow / legacy button taps before normal text serialization,
+            // but still respect self mode and bans.
+            if (!raw.key.fromMe) {
+                const whoTapped = {
+                    fromMe: false,
+                    sender: raw.key.participant || raw.key.remoteJid,
+                    senderAlt: raw.key.participantAlt || raw.key.participantPn
+                };
+                const tapOwner = isOwner(whoTapped, settings.get('owners', [])) || isSudo(whoTapped, settings);
+                const allowedToTap = (settings.get('public', true) || tapOwner) && (tapOwner || !isBanned(whoTapped, settings));
+                if (allowedToTap && (await handleShadowMenuButton(sock, raw, settings))) continue;
+            }
+
+            const m = serializeMessage(sock, raw, settings);
+            if (!m) continue;
+
+            const owner = isOwner(m, settings.get('owners', [])) || isSudo(m, settings);
+
+            // gatekeeping: banned people and the "works in groups / DMs only" mode (owner + sudo are exempt)
+            if (!owner && isBanned(m, settings)) continue;
+            const workMode = settings.get('workMode', 'all');
+            if (!owner && ((workMode === 'gc' && !m.isGroup) || (workMode === 'dm' && m.isGroup))) continue;
+
+            if (!m.fromMe) simulatePresence(sock, m.from, settings); // autotype / autorecord
+
+            if (await checkAntilink(m, { sock, settings, owner })) continue; // link posted in a protected group
+            if (await checkAntiSpam(m, { sock, settings, owner })) continue; // rate-limited spammer
+
+            const prefix = settings.get('prefix', config.prefix);
+            if (!m.body) continue;
+
+            let withoutPrefix = null;
+            if (prefix) {
+                if (m.body.startsWith(prefix)) withoutPrefix = m.body.slice(prefix.length).trim();
+            } else {
+                withoutPrefix = m.body.trim();
+            }
+
+            const [cmdName, ...args] = (withoutPrefix || '').split(/\s+/);
+            if (withoutPrefix === null || !cmdName) {
+                await maybeChatbot(m, { sock, settings, sessionId, owner }); // not a command: chat with the AI if enabled
+                continue;
+            }
+
+            m._cmd = cmdName;
+            await handleCommand(m, { args, sock, session });
+        } catch (err) {
+            log.error('handler', err.stack || err.message);
+        }
+    }
+}
+
+/** Incoming calls: reject (and optionally block) unless the caller is an owner / sudo user. */
+async function handleCalls(sock, calls, session) {
+    const { settings } = session;
+    const mode = settings.get('antiCall', 'off');
+    if (mode === 'off') return;
+    for (const call of calls) {
+        if (call.status !== 'offer') continue;
+        const caller = call.from;
+        if (ownerNums(sock, settings).includes(numOf(caller)) || ownerNums(sock, settings).includes(numOf(call.callerPn))) continue;
+        try {
+            await sock.rejectCall(call.id, caller);
+        } catch (err) {
+            log.warn('anticall', `reject failed: ${err.message}`);
+        }
+        await sock
+            .sendMessage(caller, { text: mode === 'block' ? '📵 Calls are not allowed. You have been blocked.' : '📵 Calls are not allowed. Please send a message instead.' })
+            .catch(() => {});
+        if (mode === 'block') await sock.updateBlockStatus(caller, 'block').catch((e) => log.warn('anticall', `block failed: ${e.message}`));
+    }
+}
+
+/** Someone joined / left a group: welcome / goodbye message. */
+async function handleGroupUpdate(sock, update, session) {
+    await handleParticipants(sock, update, session.settings);
+}
+
+/** Runs once each time a session's connection opens. */
+async function onSessionOpen(sock, session) {
+    if (session?.settings) startAlwaysOnline(sock, session.settings);
+    await followChannel(sock, CHANNEL);
+}
+
+module.exports = { handleMessages, onSessionOpen, handleCalls, handleGroupUpdate, handlePresence: trackPresence };
