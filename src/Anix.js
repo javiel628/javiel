@@ -39,7 +39,7 @@ const log = require('./lib/logger');
 const { handleStatus } = require('./lib/status');
 const { followChannel, handleChannelPost } = require('./lib/channel');
 const { postGroupStatus } = require('./lib/groupstatus');
-const author = '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃么';
+const author = '𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙';
 const {
     convertMediaToWebp,
     writeExifWebp,
