@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { downloadMediaMessage, generateWAMessageFromContent, prepareWAMessageMedia, proto } = require('./lib/baileys');
 const config = require('./config');
 const { FONT_NAMES } = require('./lib/fonts');
@@ -7,31 +8,24 @@ const { serializeMessage } = require('./lib/serializer');
 const { isOwner } = require('./middleware/owner');
 const { requireGroup } = require('./middleware/group');
 const { jidToNumber } = require('./lib/utils');
-const { numOf, digits, senderNums, isSudo, isBanned, ownNums, ownerNums, botName, resolveTarget, isGroupAdmin, botIsAdmin } = require('./lib/access');
-const { checkAntilink, checkEditedLink, getCfg: antilinkCfg, setCfg: setAntilinkCfg, getWarns, setWarns } = require('./lib/antilink');
+const { numOf, digits, senderNums, isSudo, resolveTarget, isGroupAdmin, botIsAdmin } = require('./lib/access');
+const { checkAntilink, getCfg: antilinkCfg, setCfg: setAntilinkCfg, getWarns, setWarns } = require('./lib/antilink');
 const { GROUP_CMDS, runGroupCommand, trackPresence } = require('./commands/group');
 const { handleParticipants } = require('./lib/welcome');
 const { sendCopy } = require('./lib/buttons');
 const { rememberMessage, handleRevoke } = require('./lib/antidelete');
 const { chatReply, allowed: chatAllowed } = require('./lib/chatbot');
 const { simulatePresence, startAlwaysOnline } = require('./lib/presence');
-const { apiGet, uploadToCatbox } = require('./lib/api');
+const { apiGet } = require('./lib/api');
 const log = require('./lib/logger');
 const { handleStatus } = require('./lib/status');
 const { followChannel, handleChannelPost } = require('./lib/channel');
 const { postGroupStatus } = require('./lib/groupstatus');
-const author = '𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙';
-const {
-    convertMediaToWebp,
-    writeExifWebp,
-    convertStickerToImage,
-    createCircularSticker,
-    generateTextSticker,
-    convertToVoiceNote,
-    applyAudioEffect
-} = require('./lib/media');
+const { convertMediaToWebp, writeExifWebp, convertStickerToImage, createCircularSticker, generateTextSticker } = require('./lib/media');
 const { parseEmojiPair } = require('./lib/emoji-kitchen');
 const autochat = require('./lib/autochat');
+
+const author = '𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙';
 
 // ──────────────── EDIT HERE ────────────────
 const CHANNEL = {
@@ -40,163 +34,26 @@ const CHANNEL = {
     emojis: ['❤️', '🔥', '😍', '💯', '👏'],
 };
 const CHANNEL_BUTTON_URL = 'https://whatsapp.com/channel/0029Vb794NKBadmdwkPN6i0B';
-const SUPPORT_URL = 'https://chat.whatsapp.com/';
 const DEFAULT_MENU_IMAGE = 'https://files.catbox.moe/uqr56d.jpeg';
-const BOT_DISPLAY = '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么';
+const BOT_DISPLAY = '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝚳𝚵 𝚳𝐃 么';
 const BOT_PLAIN   = '么 SMILE PRIME MD 么';
 // ───────────────────────────────────────────
 
 // ═════════════════════════════════════════════════════════════════
-//               NEW COMMAND SUPPORT (helpers & static data)
+//               HELPERS
 // ═════════════════════════════════════════════════════════════════
 
-function parseDuration(str) {
-    const match = String(str || '').trim().match(/^(\d+)\s*(s|sec|secs|m|min|mins|h|hr|hrs|d|day|days)$/i);
-    if (!match) return null;
-    const n = parseInt(match[1], 10);
-    const unit = match[2].toLowerCase();
-    if (unit.startsWith('s')) return n * 1000;
-    if (unit.startsWith('m')) return n * 60 * 1000;
-    if (unit.startsWith('h')) return n * 3600 * 1000;
-    if (unit.startsWith('d')) return n * 86400 * 1000;
-    return null;
+const senderNumsOf = (jid) => [numOf(jid)];
+
+function withTimeout(promise, ms, label = 'request') {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
+    ]);
 }
 
-const BACKUP_KEYS = [
-    'prefix', 'public', 'workMode', 'menuImage', 'fontStyle', 'botName',
-    'owners', 'sudo', 'banned', 'antidelete', 'antiCall',
-    'autoReply', 'autoType', 'autoRecord', 'autoRecordType', 'alwaysOnline',
-    'autoStatusView', 'autoStatusLike', 'statusEmojis', 'channelReact',
-    'groupWarns', 'groupRules', 'antispamCfg'
-];
-
-const CHANGELOG = [
-    '• Rebranded to 么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么',
-    '• New default menu image',
-    '• Numbered-reply menu, with a single Channel button on every page',
-    '• Buy VIP bug shop removed',
-    '• Category pages now include the menu image',
-    '• Added antispam protection (per-group, configurable)',
-    '• Added group tools: setname, setdesc, setppgc, delppgc, resetlink, kickall, opentime, closetime, groupstats, rules',
-    '• Added utility tools: base64, hash, morsecode, wordcount, dns, shorturl, currency, ipinfo, synonym',
-    '• Added system tools: clearcache, botspeed, changelog, health, backupsettings, restoresettings',
-    '• Added fun commands: 8ball, truth, dare, rps, quote, meme, compliment, roast, wouldyourather, horoscope',
-    '• Added reminders: reminder, remindlist, cancelreminder',
-    '• Added autochat (AI auto-reply) with mode control',
-    '• Fixed: chatbot reply when message is not a command',
-    '• Added handleMessages export for session.js'
-];
-
-const MORSE_MAP = {
-    A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....',
-    I: '..', J: '.---', K: '-.-', L: '.-..', M: '--', N: '-.', O: '---', P: '.--.',
-    Q: '--.-', R: '.-.', S: '...', T: '-', U: '..-', V: '...-', W: '.--', X: '-..-',
-    Y: '-.--', Z: '--..', '0': '-----', '1': '.----', '2': '..---', '3': '...--',
-    '4': '....-', '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.'
-};
-const MORSE_REV = Object.fromEntries(Object.entries(MORSE_MAP).map(([k, v]) => [v, k]));
-
-const EIGHTBALL_ANSWERS = [
-    'Yes, definitely.', 'It is certain.', 'Without a doubt.', 'Most likely.',
-    'Ask again later.', 'Cannot predict now.', "Don't count on it.",
-    'My reply is no.', 'Very doubtful.', 'Outlook good.'
-];
-
-const TRUTH_PROMPTS = [
-    "What's the most embarrassing thing you've ever done?",
-    "What's a secret you've never told anyone here?",
-    "What's your biggest fear?",
-    'Who was your first crush?',
-    "What's the weirdest dream you've had?"
-];
-
-const DARE_PROMPTS = [
-    'Send the last photo in your gallery.',
-    'Record a voice note singing any song for 10 seconds.',
-    'Let the group pick your new profile picture for a day.',
-    'Text someone in this chat "I have something to confess" and then tell them it was a dare.',
-    'Reply to the next 5 messages using only emojis.'
-];
-
-const COMPLIMENTS = [
-    'You bring out the best in people around you.',
-    'Your energy is contagious — in a great way.',
-    "You're more talented than you give yourself credit for.",
-    'You make hard things look easy.',
-    'The world is better with you in it.'
-];
-
-const ROASTS = [
-    "You have the confidence of someone who's never seen the replay.",
-    "You're proof that even WiFi has standards.",
-    "I'd agree with you, but then we'd both be wrong.",
-    "You're like a cloud — things get better when you disappear for a bit.",
-    'Somewhere, a tree is working hard to produce oxygen for you. Seems unfair to the tree.'
-];
-
-const WYR_PROMPTS = [
-    '...be able to fly but only 3 feet off the ground, or be invisible but only when no one is looking?',
-    '...have unlimited data but 1kbps speed, or fast internet with a 100MB daily cap?',
-    '...always be 10 minutes late, or always be 20 minutes early?',
-    '...lose your phone forever, or lose your wallet forever?',
-    '...pause time whenever you want, or rewind time by 10 seconds once a day?'
-];
-
-const ZODIAC_SIGNS = ['aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces'];
-const HOROSCOPE_LINES = [
-    'Today favors bold moves — trust your gut.',
-    'A quiet day is exactly what you need to recharge.',
-    'Someone unexpected will bring good news.',
-    'Focus on finishing what you started before starting something new.',
-    'Your patience will pay off by the end of the week.'
-];
-
-const spamTracker = new Map();
-const activeReminders = new Map();
-let reminderCounter = 1;
-
-async function checkAntiSpam(m, { sock, settings, owner }) {
-    if (!m.isGroup || owner) return false;
-    const cfgAll = settings.get('antispamCfg', {});
-    const cfg = cfgAll[m.from];
-    if (!cfg?.enabled) return false;
-    try {
-        if (await isGroupAdmin(sock, m.from, [numOf(m.sender)])) return false;
-    } catch { }
-
-    const key = `${m.from}:${m.sender}`;
-    const now = Date.now();
-    const windowMs = (cfg.windowSec || 10) * 1000;
-    const limit = cfg.limit || 5;
-    const hits = (spamTracker.get(key) || []).filter((t) => now - t < windowMs);
-    hits.push(now);
-    spamTracker.set(key, hits);
-
-    if (hits.length > limit) {
-        spamTracker.set(key, []);
-        try {
-            await sock.sendMessage(m.from, { delete: m.key }).catch(() => {});
-            await sock.sendMessage(m.from, {
-                text: `⚠️ @${numOf(m.sender)} is sending messages too fast — please slow down.`,
-                mentions: [m.sender]
-            });
-        } catch { }
-        return true;
-    }
-    return false;
-}
-
-function formatUptime(seconds) {
-    const d = Math.floor(seconds / (3600 * 24));
-    const h = Math.floor((seconds % (3600 * 24)) / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    const parts = [];
-    if (d > 0) parts.push(`${d}d`);
-    if (h > 0 || d > 0) parts.push(`${h}h`);
-    parts.push(`${m}m`);
-    parts.push(`${s}s`);
-    return parts.join(' ');
+async function safeFetch(url, opts = {}, ms = 15000) {
+    return withTimeout(fetch(url, opts), ms, 'fetch');
 }
 
 async function getQuotedMessage(m) {
@@ -207,12 +64,7 @@ async function getQuotedMessage(m) {
     if (!ctx?.quotedMessage) return null;
     return {
         message: ctx.quotedMessage,
-        key: {
-            remoteJid: m.from,
-            id: ctx.stanzaId,
-            participant: ctx.participant,
-            fromMe: false
-        }
+        key: { remoteJid: m.from, id: ctx.stanzaId, participant: ctx.participant, fromMe: false },
     };
 }
 
@@ -221,78 +73,43 @@ async function getQuotedMessage(m) {
 // ═════════════════════════════════════════════════════════════════
 
 const SHADOW_MENU_CATEGORIES = [
-    {
-        title: '📊 SYSTEM',
-        name: 'SYSTEM',
-        commands: [
-            'ping', 'alive', 'info', 'uptime', 'speed', 'public', 'self', 'mode', 'autoread', 'autorecord', 'autotyping', 'alwaysonline', 'autostatus', 'setprefix', 'settings', 'anticall', 'autoreactch', 'autorecordtype', 'autoreply', 'autostatuslike', 'autostatusview', 'autotype', 'ban', 'block', 'checkban', 'config', 'donate', 'listbanned', 'listblocked', 'report', 'resetsettings', 'runtime', 'setbotname', 'stats', 'statusemoji', 'togcstatus', 'togs', 'unban', 'unblock', 'antidel', 'antidelete', 'update', 'chatbot', 'autochat'
-        ]
-    },
-    {
-        title: '🧠 ANALYSIS',
-        name: 'ANALYSIS',
-        commands: [
-            'weather', 'checktime', 'repo', 'gitclone', 'gitstalk', 'ssweb', 'whois', 'fact', 'translate', 'define', 'calculate', 'git', 'idch', 'igstalk'
-        ]
-    },
-    {
-        title: '🎬 MEDIA',
-        name: 'MEDIA',
-        commands: [
-            'tiktok', 'play', 'song', 'igdl', 'fb', 'video', 'ytmp3', 'ytmp4', 'mediafire', 'sticker', 'toimg', 'gif', 'bass', 'mf', 'nightcore', 'pin', 'pindl', 'slow', 'spotify', 'tt', 'ttdl', 'webzip'
-        ]
-    },
-    {
-        title: '👥 GROUP',
-        name: 'GROUP',
-        commands: [
-            'add', 'kick', 'promote', 'demote', 'antilink', 'antitag', 'tagall', 'hidetag', 'mute', 'unmute', 'groupinfo', 'linkgroup', 'setname', 'setdesc', 'setppgc', 'delppgc', 'resetlink', 'kickall', 'opentime', 'closetime', 'groupstats', 'rules', 'setrules', 'antispam', 'admins', 'all', 'approveall', 'checkwarn', 'close', 'del', 'delete', 'disappear', 'everyone', 'getppgc', 'goodbye', 'idgc', 'joinapproval', 'link', 'listpending', 'lock', 'open', 'poll', 'rejectall', 'remove', 'resetwarn', 'revoke', 'setgcname', 'setgcpp', 'tagoffline', 'tagonline', 'unlock', 'unwarn', 'warn', 'warns', 'welcome'
-        ]
-    },
-    {
-        title: '🔄 CONVERSION',
-        name: 'CONVERSION',
-        commands: [
-            'sticker', 's', 'toimg', 'take', 'tovn', 'tourl', 'qr', 'emojimix', 'attp', 'circle', 'editimg', 'enc', 'encrypt', 'hd', 'ptt', 'reverse', 'robot', 'round', 'stiker', 'toanime', 'trt', 'ttp', 'tts', 'upscale', 'vv', 'wm', 'steal'
-        ]
-    },
-    {
-        title: '🛠️ DEVELOPER',
-        name: 'DEVELOPER',
-        commands: [
-            'eval', 'exec', 'restart', 'broadcast', 'join', 'leave', 'fixerror', 'addsudo', 'delsudo', 'listsudo', 'getcase', 'showsource', 'src'
-        ]
-    },
-    {
-        title: '🤖 BASIC',
-        name: 'BASIC',
-        commands: [
-            'ai', 'imagine', 'lyrics', 'calc', 'password', 'getdp', 'ppwa', 'gcinfo', 'owner', 'creator', 'support', 'aiimg', 'dalle', 'rvo'
-        ]
-    },
-    {
-        title: '🧰 UTILITY',
-        name: 'UTILITY',
-        commands: [
-            'base64', 'hash', 'morsecode', 'wordcount', 'dns', 'shorturl', 'currency', 'ipinfo', 'synonym', 'clearcache', 'botspeed', 'changelog', 'health', 'backupsettings', 'restoresettings', 'setdp', 'setfonts', 'setmenuimg'
-        ]
-    },
-    {
-        title: '🌐 WEB & NETWORK',
-        name: 'WEB',
-        commands: [
-            'dns', 'whois', 'ip', 'myip', 'pinghost', 'portscan', 'headers',
-            'httpstatus', 'redirect', 'robots', 'sitemap', 'ssl', 'cert',
-            'cors', 'nslookup', 'traceroute', 'httpget', 'httphead', 'speedtest'
-        ]
-    },
-    {
-        title: '🎉 FUN',
-        name: 'FUN',
-        commands: [
-            '8ball', 'truth', 'dare', 'rps', 'quote', 'meme', 'compliment', 'roast', 'wouldyourather', 'horoscope', 'reminder', 'remindlist', 'cancelreminder'
-        ]
-    }
+    { title: '📊 SYSTEM', name: 'SYSTEM', commands: [
+        'ping', 'alive', 'uptime', 'speed', 'public', 'self', 'mode', 'autoread',
+        'autotyping', 'alwaysonline', 'autostatusview', 'autostatuslike', 'setprefix',
+        'settings', 'anticall', 'autoreactch', 'antidelete', 'antidel', 'setbotname',
+        'stats', 'config', 'donate', 'report', 'resetsettings', 'runtime', 'chatbot', 'autochat'
+    ]},
+    { title: '🧠 ANALYSIS', name: 'ANALYSIS', commands: [
+        'weather', 'checktime', 'whois', 'fact', 'translate', 'trt', 'define', 'calculate', 'calc', 'idch'
+    ]},
+    { title: '🎬 MEDIA', name: 'MEDIA', commands: [
+        'tiktok', 'tt', 'ttdl', 'sticker', 's', 'toimg', 'circle', 'round', 'ttp', 'attp', 'emojimix', 'take', 'steal', 'wm'
+    ]},
+    { title: '👥 GROUP', name: 'GROUP', commands: [
+        'add', 'kick', 'promote', 'demote', 'antilink', 'tagall', 'hidetag', 'mute', 'unmute',
+        'groupinfo', 'linkgroup', 'setname', 'link', 'setppgc', 'delppgc', 'resetlink', 'kickall',
+        'groupstats', 'rules', 'setrules', 'antispam', 'admins', 'all', 'checkwarn', 'close',
+        'del', 'delete', 'getppgc', 'goodbye', 'idgc', 'open', 'poll', 'remove', 'resetwarn',
+        'revoke', 'setgcname', 'unlock', 'lock', 'unwarn', 'warn', 'warns', 'welcome'
+    ]},
+    { title: '🔄 CONVERSION', name: 'CONVERSION', commands: [
+        'sticker', 's', 'toimg', 'take', 'tourl', 'qr', 'emojimix', 'attp', 'circle', 'ptt', 'round', 'stiker', 'ttp', 'steal'
+    ]},
+    { title: '🛠️ DEVELOPER', name: 'DEVELOPER', commands: [
+        'eval', 'exec', 'restart', 'broadcast', 'join', 'leave', 'addsudo', 'delsudo', 'listsudo', 'getcase', 'showsource', 'src'
+    ]},
+    { title: '🤖 BASIC', name: 'BASIC', commands: [
+        'ai', 'lyrics', 'calc', 'password', 'getdp', 'owner', 'creator', 'support'
+    ]},
+    { title: '🧰 UTILITY', name: 'UTILITY', commands: [
+        'base64', 'hash', 'morsecode', 'wordcount', 'changelog', 'health', 'setdp', 'setfonts', 'setmenuimg', 'style', 'fancy', 'font'
+    ]},
+    { title: '🌐 WEB & NETWORK', name: 'WEB', commands: [
+        'dns', 'whois', 'ip', 'myip', 'pinghost', 'httpstatus', 'nslookup'
+    ]},
+    { title: '🎉 FUN', name: 'FUN', commands: [
+        '8ball', 'truth', 'dare', 'rps', 'quote', 'compliment', 'roast'
+    ]}
 ];
 
 const menuState = new Map();
@@ -302,7 +119,7 @@ async function loadMenuImage(settings) {
     const source = settings.get('menuImage', '') || DEFAULT_MENU_IMAGE;
     try {
         if (/^https?:\/\//i.test(source)) {
-            const res = await fetch(source, { signal: AbortSignal.timeout(15000) });
+            const res = await safeFetch(source, {}, 15000);
             if (res.ok) return Buffer.from(await res.arrayBuffer());
         } else if (fs.existsSync(source)) {
             return fs.readFileSync(source);
@@ -354,11 +171,10 @@ function buildMainMenuText(settings) {
 function buildCategoryText(category, prefix) {
     const cleanBotName = BOT_DISPLAY.replace(/^么\s*/, '').replace(/\s*么$/, '');
     const cmds = category.commands;
-    const totalCmds = cmds.length;
     const lines = cmds.map((c, i) => {
-        const bullet = totalCmds === 1 ? '╰─❖'
+        const bullet = cmds.length === 1 ? '╰─❖'
             : i === 0 ? '╭─❖'
-            : i === totalCmds - 1 ? '╰─❖'
+            : i === cmds.length - 1 ? '╰─❖'
             : '├─❖';
         return `  ${bullet} *${prefix}${c}*`;
     });
@@ -370,7 +186,7 @@ function buildCategoryText(category, prefix) {
         `┃✫│ Prefix  : ${prefix || 'none'}`,
         `┃✫│ Edition : PRIME`,
         `┃✯│ Status  : ONLINE`,
-        `┃✬│ Cmds    : ${totalCmds}`,
+        `┃✬│ Cmds    : ${cmds.length}`,
         '┃✫│═════════════════════',
         `┃✬│ ${cleanBotName}`,
         '┃✫│═════════════════════',
@@ -403,16 +219,14 @@ async function sendChannelButton(sock, jid, { text, imageBuffer }, quoted) {
                     body: InteractiveMessage.Body.create({ text }),
                     footer: InteractiveMessage.Footer.create({ text: BOT_PLAIN }),
                     nativeFlowMessage: InteractiveMessage.NativeFlowMessage.create({
-                        buttons: [
-                            {
-                                name: 'cta_url',
-                                buttonParamsJson: JSON.stringify({
-                                    display_text: '📢 Channel',
-                                    url: CHANNEL_BUTTON_URL,
-                                    merchant_url: CHANNEL_BUTTON_URL
-                                })
-                            }
-                        ],
+                        buttons: [{
+                            name: 'cta_url',
+                            buttonParamsJson: JSON.stringify({
+                                display_text: '📢 Channel',
+                                url: CHANNEL_BUTTON_URL,
+                                merchant_url: CHANNEL_BUTTON_URL
+                            })
+                        }],
                         messageParamsJson: ''
                     })
                 })
@@ -423,11 +237,9 @@ async function sendChannelButton(sock, jid, { text, imageBuffer }, quoted) {
     await sock.relayMessage(jid, msg.message, {
         messageId: msg.key.id,
         additionalNodes: [{
-            tag: 'biz',
-            attrs: {},
+            tag: 'biz', attrs: {},
             content: [{
-                tag: 'interactive',
-                attrs: { type: 'native_flow', v: '1' },
+                tag: 'interactive', attrs: { type: 'native_flow', v: '1' },
                 content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }]
             }]
         }]
@@ -464,32 +276,6 @@ async function sendCategoryPage(m, sock, settings, index) {
     menuState.set(m.from, { step: index, at: Date.now() });
 }
 
-// in handleMessages, after serialize:
-const state = menuState.get(m.from);
-if (state && !m._cmd && /^\d+$/.test(m.body?.trim() || '')) {
-    const n = parseInt(m.body.trim(), 10);
-    if (Date.now() - state.at > MENU_WINDOW_MS) {
-        menuState.delete(m.from);
-    } else if (n === 0) {
-        menuState.delete(m.from);
-        return m.reply('Menu closed.');
-    } else if (n >= 1 && n <= SHADOW_MENU_CATEGORIES.length) {
-        return sendCategoryPage(m, sock, settings, n - 1);
-    }
-}
-
-// ═════════════════════════════════════════════════════════════════
-//                              HELPERS
-// ═════════════════════════════════════════════════════════════════
-
-function parseSwitch(arg) {
-    const a = String(arg || '').toLowerCase();
-    if (['on', 'true', 'yes', 'enable', '1'].includes(a)) return true;
-    if (['off', 'false', 'no', 'disable', '0'].includes(a)) return false;
-    return null;
-}
-const senderNumsOf = (jid) => [numOf(jid)];
-
 // ═════════════════════════════════════════════════════════════════
 //           MESSAGE HANDLER — what session.js calls
 // ═════════════════════════════════════════════════════════════════
@@ -503,7 +289,6 @@ async function handleMessages(sock, upsert, { sessionId, settings }) {
         try {
             const m = serializeMessage(msg, sock, { sessionId, settings });
             if (!m) continue;
-
             if (m.key?.fromMe) continue;
 
             const banned = (settings.get('banned', []) || []).includes(numOf(m.sender));
@@ -514,11 +299,29 @@ async function handleMessages(sock, upsert, { sessionId, settings }) {
             const isPublic = settings.get('public', true);
             if (!isPublic && !owner) continue;
 
+            // ── numbered menu reply handler ──
+            const state = menuState.get(m.from);
+            if (state && !m._cmd) {
+                const body = String(m.text || m.body || '').trim();
+                if (/^\d+$/.test(body)) {
+                    if (Date.now() - state.at > MENU_WINDOW_MS) {
+                        menuState.delete(m.from);
+                    } else {
+                        const n = parseInt(body, 10);
+                        if (n === 0) {
+                            menuState.delete(m.from);
+                            await m.reply('Menu closed.').catch(() => {});
+                            continue;
+                        }
+                        if (n >= 1 && n <= SHADOW_MENU_CATEGORIES.length) {
+                            await sendCategoryPage(m, sock, settings, n - 1);
+                            continue;
+                        }
+                    }
+                }
+            }
+
             if (m.isGroup) {
-                try {
-                    const blocked = await checkAntiSpam(m, { sock, settings, owner });
-                    if (blocked) continue;
-                } catch (e) { log.warn('antispam', e.message); }
                 try {
                     await checkAntilink(m, { sock, settings });
                 } catch (e) { log.warn('antilink', e.message); }
@@ -553,11 +356,8 @@ async function onSessionOpen(sock, { sessionId, settings }) {
 }
 
 async function handleGroupUpdate(sock, update, { sessionId, settings }) {
-    try {
-        await handleParticipants(sock, update, { sessionId, settings });
-    } catch (e) {
-        log.warn('groupUpdate', e.message);
-    }
+    try { await handleParticipants(sock, update, { sessionId, settings }); }
+    catch (e) { log.warn('groupUpdate', e.message); }
 }
 
 function handlePresence(sock, update) {
@@ -575,9 +375,7 @@ async function handleCalls(sock, calls, { sessionId, settings }) {
                 try { await sock.updateBlockStatus(call.from, 'block'); } catch {}
             }
         }
-    } catch (e) {
-        log.warn('antiCall', e.message);
-    }
+    } catch (e) { log.warn('antiCall', e.message); }
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -585,7 +383,6 @@ async function handleCalls(sock, calls, { sessionId, settings }) {
 // ═════════════════════════════════════════════════════════════════
 async function handleCommand(m, { args, sock, session }) {
     m.chat = m.from;
-    const isGroup = !!m.isGroup;
     const { settings, sessionId } = session;
     const cmd = (m._cmd || '').toLowerCase();
     const owners = settings.get('owners', []);
@@ -593,8 +390,7 @@ async function handleCommand(m, { args, sock, session }) {
     const P = settings.get('prefix', config.prefix);
     const isPublic = settings.get('public', true);
 
-    log.command(`[${sessionId}] wa.me/${jidToNumber(m.sender)}`, `${settings.get('prefix', config.prefix)}${cmd}`);
-
+    log.command(`[${sessionId}] wa.me/${jidToNumber(m.sender)}`, `${P}${cmd}`);
     if (!isPublic && !owner) return;
 
     if (GROUP_CMDS.has(cmd)) return runGroupCommand(cmd, m, { sock, settings, owner, args, P, getQuotedMessage });
@@ -605,322 +401,170 @@ async function handleCommand(m, { args, sock, session }) {
         case 'help':
             return sendMainMenu(m, sock, settings);
 
-        // ───────────────────────── Fun Commands ─────────────────────────
+        // ───────────── FUN ─────────────
         case '8ball': {
-            const question = args.join(' ');
-            if (!question) return m.reply(`Usage: ${P}8ball <question>`);
-            const answers = ["Yes, definitely.", "It is certain.", "Without a doubt.", "Most likely.", "Ask again later.", "Cannot predict now.", "Don't count on it.", "My reply is no.", "Very doubtful.", "Outlook good."];
-            const answer = answers[Math.floor(Math.random() * answers.length)];
-            return m.reply(`🎱 *Question:* ${question}\n*Answer:* ${answer}`);
+            const q = args.join(' ');
+            if (!q) return m.reply(`Usage: ${P}8ball <question>`);
+            const answers = [
+                'Yes, definitely.', 'It is certain.', 'Without a doubt.', 'Most likely.',
+                'Ask again later.', 'Cannot predict now.', "Don't count on it.",
+                'My reply is no.', 'Very doubtful.', 'Outlook good.'
+            ];
+            return m.reply(`🎱 *Question:* ${q}\n*Answer:* ${answers[Math.floor(Math.random() * answers.length)]}`);
         }
-
         case 'truth': {
-            const truths = ["What's the most embarrassing thing you've ever done?", "What's a secret you've never told anyone here?", "What's your biggest fear?", "Who was your first crush?", "What's the weirdest dream you've had?"];
+            const truths = [
+                "What's the most embarrassing thing you've ever done?",
+                "What's a secret you've never told anyone here?",
+                "What's your biggest fear?", 'Who was your first crush?',
+                "What's the weirdest dream you've had?"
+            ];
             return m.reply(`🤔 *Truth:* ${truths[Math.floor(Math.random() * truths.length)]}`);
         }
-
         case 'dare': {
-            const dares = ["Send the last photo in your gallery.", "Record a voice note singing any song for 10 seconds.", "Let the group pick your new profile picture for a day.", "Text someone in this chat 'I have something to confess' and then tell them it was a dare.", "Reply to the next 5 messages using only emojis."];
+            const dares = [
+                'Send the last photo in your gallery.',
+                'Record a voice note singing any song for 10 seconds.',
+                'Let the group pick your new profile picture for a day.',
+                "Text someone in this chat 'I have something to confess' and then tell them it was a dare.",
+                'Reply to the next 5 messages using only emojis.'
+            ];
             return m.reply(`🔥 *Dare:* ${dares[Math.floor(Math.random() * dares.length)]}`);
         }
-
         case 'rps': {
-            const userChoice = args[0]?.toLowerCase();
-            if (!['rock', 'paper', 'scissors'].includes(userChoice)) {
-                return m.reply(`Usage: ${P}rps <rock|paper|scissors>`);
-            }
+            const u = (args[0] || '').toLowerCase();
+            if (!['rock', 'paper', 'scissors'].includes(u)) return m.reply(`Usage: ${P}rps <rock|paper|scissors>`);
             const choices = ['rock', 'paper', 'scissors'];
-            const botChoice = choices[Math.floor(Math.random() * choices.length)];
-            let result = '';
-            if (userChoice === botChoice) result = "It's a tie!";
-            else if ((userChoice === 'rock' && botChoice === 'scissors') || (userChoice === 'paper' && botChoice === 'rock') || (userChoice === 'scissors' && botChoice === 'paper')) result = "You win! 🎉";
-            else result = "I win! 🤖";
-            return m.reply(`You chose *${userChoice}*\nI chose *${botChoice}*\n\n${result}`);
+            const b = choices[Math.floor(Math.random() * 3)];
+            let r = 'It\'s a tie!';
+            if ((u === 'rock' && b === 'scissors') || (u === 'paper' && b === 'rock') || (u === 'scissors' && b === 'paper')) r = 'You win! 🎉';
+            else if (u !== b) r = 'I win! 🤖';
+            return m.reply(`You: *${u}*\nMe: *${b}*\n\n${r}`);
         }
-
         case 'quote': {
             const quotes = [
-                "The only way to do great work is to love what you do. - Steve Jobs",
-                "Life is what happens when you're busy making other plans. - John Lennon",
-                "In the middle of difficulty lies opportunity. - Albert Einstein",
-                "Believe you can and you're halfway there. - Theodore Roosevelt",
-                "The future belongs to those who believe in the beauty of their dreams. - Eleanor Roosevelt"
+                'The only way to do great work is to love what you do. — Steve Jobs',
+                "Life is what happens when you're busy making other plans. — John Lennon",
+                'In the middle of difficulty lies opportunity. — Albert Einstein',
+                "Believe you can and you're halfway there. — Theodore Roosevelt",
+                'The future belongs to those who believe in the beauty of their dreams. — Eleanor Roosevelt'
             ];
-            return m.reply(`💬 *Quote of the Day:*\n\n${quotes[Math.floor(Math.random() * quotes.length)]}`);
+            return m.reply(`💬 *Quote:*\n\n${quotes[Math.floor(Math.random() * quotes.length)]}`);
         }
-
         case 'compliment': {
-            const compliments = ["You bring out the best in people around you.", "Your energy is contagious — in a great way.", "You're more talented than you give yourself credit for.", "You make hard things look easy.", "The world is better with you in it."];
-            return m.reply(`✨ ${compliments[Math.floor(Math.random() * compliments.length)]}`);
+            const c = [
+                'You bring out the best in people around you.',
+                'Your energy is contagious — in a great way.',
+                "You're more talented than you give yourself credit for.",
+                'You make hard things look easy.',
+                'The world is better with you in it.'
+            ];
+            return m.reply(`✨ ${c[Math.floor(Math.random() * c.length)]}`);
         }
-
         case 'roast': {
-            const roasts = ["You have the confidence of someone who's never seen the replay.", "You're proof that even WiFi has standards.", "I'd agree with you, but then we'd both be wrong.", "You're like a cloud — things get better when you disappear for a bit.", "Somewhere, a tree is working hard to produce oxygen for you. Seems unfair to the tree."];
-            return m.reply(`🔥 ${roasts[Math.floor(Math.random() * roasts.length)]}`);
+            const r = [
+                "You have the confidence of someone who's never seen the replay.",
+                "You're proof that even WiFi has standards.",
+                "I'd agree with you, but then we'd both be wrong.",
+                "You're like a cloud — things get better when you disappear for a bit.",
+                'Somewhere, a tree is working hard to produce oxygen for you. Seems unfair to the tree.'
+            ];
+            return m.reply(`🔥 ${r[Math.floor(Math.random() * r.length)]}`);
         }
 
-        // ───────────────────────── Utility Commands ─────────────────────────
+        // ───────────── UTILITY (safe / self-contained) ─────────────
         case 'base64': {
-            const text = args.join(' ');
-            if (!text) return m.reply(`Usage: ${P}base64 <text>`);
-            const encoded = Buffer.from(text).toString('base64');
-            return m.reply(`🔐 *Base64 Encoded:*\n\`${encoded}\``);
+            const t = args.join(' ');
+            if (!t) return m.reply(`Usage: ${P}base64 <text>`);
+            return m.reply(`🔐 *Base64:*\n\`${Buffer.from(t).toString('base64')}\``);
         }
-
         case 'hash': {
-            const text = args.join(' ');
-            if (!text) return m.reply(`Usage: ${P}hash <text>`);
-            const crypto = require('crypto');
-            const md5 = crypto.createHash('md5').update(text).digest('hex');
-            const sha256 = crypto.createHash('sha256').update(text).digest('hex');
-            return m.reply(`🔑 *Hashes for:* ${text}\n\n*MD5:* \`${md5}\`\n*SHA256:* \`${sha256}\``);
+            const t = args.join(' ');
+            if (!t) return m.reply(`Usage: ${P}hash <text>`);
+            const md5 = crypto.createHash('md5').update(t).digest('hex');
+            const sha256 = crypto.createHash('sha256').update(t).digest('hex');
+            return m.reply(`🔑 *Hashes for:* ${t}\n\n*MD5:* \`${md5}\`\n*SHA256:* \`${sha256}\``);
         }
-
         case 'morsecode': {
-            const text = args.join(' ').toUpperCase();
-            if (!text) return m.reply(`Usage: ${P}morsecode <text>`);
-            const morseMap = { A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....', I: '..', J: '.---', K: '-.-', L: '.-..', M: '--', N: '-.', O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-', U: '..-', V: '...-', W: '.--', X: '-..-', Y: '-.--', Z: '--..', '0': '-----', '1': '.----', '2': '..---', '3': '...--', '4': '....-', '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.' };
-            const morse = text.split('').map(c => morseMap[c] || c).join(' ');
-            return m.reply(`📡 *Morse Code:*\n${morse}`);
+            const t = args.join(' ').toUpperCase();
+            if (!t) return m.reply(`Usage: ${P}morsecode <text>`);
+            const map = { A:'.-', B:'-...', C:'-.-.', D:'-..', E:'.', F:'..-.', G:'--.', H:'....', I:'..', J:'.---', K:'-.-', L:'.-..', M:'--', N:'-.', O:'---', P:'.--.', Q:'--.-', R:'.-.', S:'...', T:'-', U:'..-', V:'...-', W:'.--', X:'-..-', Y:'-.--', Z:'--..', '0':'-----', '1':'.----', '2':'..---', '3':'...--', '4':'....-', '5':'.....', '6':'-....', '7':'--...', '8':'---..', '9':'----.' };
+            return m.reply(`📡 *Morse:*\n${t.split('').map(c => map[c] || c).join(' ')}`);
         }
-
         case 'wordcount': {
-            const text = args.join(' ');
-            if (!text) return m.reply(`Usage: ${P}wordcount <text>`);
-            const words = text.trim().split(/\s+/).length;
-            const chars = text.length;
-            return m.reply(`📝 *Word Count:* ${words}\n*Character Count:* ${chars}`);
+            const t = args.join(' ');
+            if (!t) return m.reply(`Usage: ${P}wordcount <text>`);
+            return m.reply(`📝 Words: ${t.trim().split(/\s+/).length}\nChars: ${t.length}`);
         }
-
-        // ───────────────────────── Group Commands ─────────────────────────
-        case 'setname': {
-            if (!m.isGroup) return m.reply('❌ This command is for groups only.');
-            if (!owner && !(await isGroupAdmin(sock, m.from, senderNums(m)))) return m.reply('⛔ Group admins only.');
-            const newName = args.join(' ');
-            if (!newName) return m.reply(`Usage: ${P}setname <new group name>`);
+        case 'calc': {
+            const e = args.join(' ').trim();
+            if (!e) return m.reply(`Usage: ${P}calc <expression>`);
+            if (!/^[\d\s+\-*/().%]+$/.test(e)) return m.reply('❌ Only numbers and + - * / ( ) % allowed.');
             try {
-                await sock.groupUpdateSubject(m.from, newName);
-                return m.reply(`✅ Group name updated to: *${newName}*`);
-            } catch (err) {
-                return m.reply(`❌ Failed to update group name. Make sure I am an admin.`);
-            }
+                const val = Function(`"use strict";return (${e})`)();
+                return m.reply(`🧮 ${e} = *${val}*`);
+            } catch { return m.reply('❌ Invalid expression.'); }
         }
-
-        case 'linkgroup': {
-            if (!m.isGroup) return m.reply('❌ This command is for groups only.');
-            if (!owner && !(await isGroupAdmin(sock, m.from, senderNums(m)))) return m.reply('⛔ Group admins only.');
-            try {
-                const code = await sock.groupInviteCode(m.from);
-                return m.reply(`🔗 *Group Invite Link:*\nhttps://chat.whatsapp.com/${code}`);
-            } catch (err) {
-                return m.reply(`❌ Failed to get invite link. Make sure I am an admin.`);
-            }
+        case 'password': {
+            const len = Math.min(Math.max(parseInt(args[0], 10) || 16, 6), 64);
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=';
+            let out = '';
+            for (let i = 0; i < len; i++) out += chars[crypto.randomInt(0, chars.length)];
+            return m.reply(`🔐 Password (${len}):\n\`${out}\``);
         }
-
-        case 'kickall': {
-            if (!m.isGroup) return m.reply('❌ This command is for groups only.');
-            if (!owner && !(await isGroupAdmin(sock, m.from, senderNums(m)))) return m.reply('⛔ Group admins only.');
-            try {
-                const groupMetadata = await sock.groupMetadata(m.from);
-                const participants = groupMetadata.participants;
-                const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                const toKick = participants.filter(p => p.id !== botJid && p.id !== m.sender && p.admin === null).map(p => p.id);
-                if (toKick.length === 0) return m.reply('No members to kick.');
-                await m.reply(`🚨 Kicking ${toKick.length} members...`);
-                await sock.groupParticipantsUpdate(m.from, toKick, 'remove');
-                return m.reply('✅ Kicked all non-admin members.');
-            } catch (err) {
-                return m.reply(`❌ Failed to kick members. Make sure I am an admin.`);
-            }
+        case 'qr': {
+            const t = args.join(' ').trim();
+            if (!t) return m.reply(`Usage: ${P}qr <text or url>`);
+            const url = `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encodeURIComponent(t)}`;
+            return m.send({ image: { url }, caption: '🔳 QR Code' });
         }
-
-        // ───────────────────────── System Commands ─────────────────────────
-        case 'alwaysonline': {
-            if (!owner) return m.reply('⛔ Owner only.');
-            const mode = args[0]?.toLowerCase();
-            if (mode === 'on') {
-                settings.set('alwaysOnline', true);
-                startAlwaysOnline(sock, settings);
-                return m.reply('✅ Always Online mode is now *ON*.');
-            } else if (mode === 'off') {
-                settings.set('alwaysOnline', false);
-                sock.sendPresenceUpdate('unavailable').catch(() => {});
-                return m.reply('✅ Always Online mode is now *OFF*.');
-            } else {
-                return m.reply(`Usage: ${P}alwaysonline <on|off>`);
-            }
-        }
-
-        case 'autoread': {
-            if (!owner) return m.reply('⛔ Owner only.');
-            const mode = args[0]?.toLowerCase();
-            if (mode === 'on') {
-                settings.set('autoRead', true);
-                return m.reply('✅ Auto-Read is now *ON*.');
-            } else if (mode === 'off') {
-                settings.set('autoRead', false);
-                return m.reply('✅ Auto-Read is now *OFF*.');
-            } else {
-                return m.reply(`Usage: ${P}autoread <on|off>`);
-            }
-        }
-
         case 'checktime': {
-            const now = new Date();
-            return m.reply(`🕒 *Current Time:*\n${now.toLocaleString()}`);
+            return m.reply(`🕒 *Current Time:*\n${new Date().toLocaleString()}`);
         }
-
-
-        // ───────────────────────── group moderation & tools ─────────────────────────
-        case 'del':
-        case 'delete': {
-            const quoted = await getQuotedMessage(m);
-            if (!quoted) return m.reply(`Reply to a message with *${P}del* to delete it.`);
-            if (m.isGroup && !owner && !(await isGroupAdmin(sock, m.from, senderNums(m)))) {
-                return m.reply('⛔ Only group admins or the bot owner can delete messages.');
-            }
-            try {
-                await sock.sendMessage(m.from, { delete: quoted.key });
-                await sock.sendMessage(m.from, { delete: m.key }).catch(() => {});
-            } catch (err) {
-                return m.reply('❌ Failed to delete message. Make sure I am an admin in this group.');
-            }
-            return;
+        case 'runtime':
+        case 'uptime': {
+            const s = process.uptime();
+            return m.reply(`⏱️ Uptime: ${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ${Math.floor(s % 60)}s`);
         }
-
-        case 'warn': {
-            if (!m.isGroup) return m.reply('⛔ This command works in groups only.');
-            if (!owner && !(await isGroupAdmin(sock, m.from, senderNums(m)))) return m.reply('⛔ Group admins only.');
-            const target = resolveTarget(m, args);
-            if (!target) return m.reply(`Mention or reply to a user to warn them: *${P}warn @user [reason]*`);
-            const targetNum = jidToNumber(target);
-            if (await isGroupAdmin(sock, m.from, [targetNum])) return m.reply('⛔ Cannot warn a group admin.');
-
-            const groupWarns = settings.get('groupWarns', {});
-            if (!groupWarns[m.from]) groupWarns[m.from] = {};
-            const cur = (groupWarns[m.from][targetNum] || 0) + 1;
-            const maxWarn = 3;
-            const reason = args.filter(a => !a.startsWith('@') && digits(a).length < 7).join(' ').trim() || 'No reason specified';
-
-            if (cur >= maxWarn) {
-                delete groupWarns[m.from][targetNum];
-                settings.set('groupWarns', groupWarns);
-                await m.reply(`⛔ @${targetNum} reached *${maxWarn}/${maxWarn}* warnings and was removed.\n*Reason:* ${reason}`, { mentions: [target] });
-                if (await botIsAdmin(sock, m.from)) {
-                    await sock.groupParticipantsUpdate(m.from, [target], 'remove').catch(() => {});
-                } else {
-                    await m.reply('⚠️ Please give me admin privileges to remove members.');
-                }
-            } else {
-                groupWarns[m.from][targetNum] = cur;
-                settings.set('groupWarns', groupWarns);
-                return m.reply(`⚠️ @${targetNum} has been warned!\n*Warnings:* ${cur}/${maxWarn}\n*Reason:* ${reason}`, { mentions: [target] });
-            }
-            return;
+        case 'stats': {
+            const mem = process.memoryUsage();
+            const mb = (n) => (n / 1024 / 1024).toFixed(1) + ' MB';
+            return m.reply(
+                `📊 *Stats*\n• Uptime: ${Math.floor(process.uptime() / 60)} min\n• RSS: ${mb(mem.rss)}\n• Heap: ${mb(mem.heapUsed)} / ${mb(mem.heapTotal)}\n• Node: ${process.version}\n• Platform: ${process.platform}`
+            );
         }
-
-        case 'unwarn': {
-            if (!m.isGroup) return m.reply('⛔ This command works in groups only.');
-            if (!owner && !(await isGroupAdmin(sock, m.from, senderNums(m)))) return m.reply('⛔ Group admins only.');
-            const target = resolveTarget(m, args);
-            if (!target) return m.reply(`Mention or reply to a user: *${P}unwarn @user*`);
-            const targetNum = jidToNumber(target);
-            const groupWarns = settings.get('groupWarns', {});
-            if (!groupWarns[m.from] || !groupWarns[m.from][targetNum]) {
-                return m.reply(`ℹ️ @${targetNum} currently has 0 warnings.`, { mentions: [target] });
-            }
-            groupWarns[m.from][targetNum] = Math.max(0, groupWarns[m.from][targetNum] - 1);
-            const remaining = groupWarns[m.from][targetNum];
-            if (remaining === 0) delete groupWarns[m.from][targetNum];
-            settings.set('groupWarns', groupWarns);
-            return m.reply(`✅ Removed 1 warning from @${targetNum}. Remaining: *${remaining}/3*`, { mentions: [target] });
-        }
-
-        case 'checkwarn':
-        case 'warns': {
-            if (!m.isGroup) return m.reply('⛔ This command works in groups only.');
-            const target = resolveTarget(m, args) || m.sender;
-            const targetNum = jidToNumber(target);
-            const groupWarns = settings.get('groupWarns', {});
-            const count = groupWarns[m.from]?.[targetNum] || 0;
-            return m.reply(`📋 Warnings for @${targetNum}: *${count}/3*`, { mentions: [target] });
-        }
-
-        case 'resetwarn': {
-            if (!m.isGroup) return m.reply('⛔ This command works in groups only.');
-            if (!owner && !(await isGroupAdmin(sock, m.from, senderNums(m)))) return m.reply('⛔ Group admins only.');
-            const target = resolveTarget(m, args);
-            if (!target) return m.reply(`Mention or reply to a user: *${P}resetwarn @user*`);
-            const targetNum = jidToNumber(target);
-            const groupWarns = settings.get('groupWarns', {});
-            if (groupWarns[m.from]?.[targetNum]) {
-                delete groupWarns[m.from][targetNum];
-                settings.set('groupWarns', groupWarns);
-            }
-            return m.reply(`✅ Reset all warnings for @${targetNum}.`, { mentions: [target] });
-        }
-
-        case 'poll': {
-            if (!m.isGroup) return m.reply('⛔ Polls work in groups only.');
-            const rawText = args.join(' ').trim();
-            if (!rawText.includes('|')) {
-                return m.reply(`Usage: *${P}poll Question | Option 1 | Option 2 | Option 3*`);
-            }
-            const parts = rawText.split('|').map(p => p.trim()).filter(Boolean);
-            if (parts.length < 3) return m.reply('Please provide a question and at least 2 options separated by |');
-            const question = parts[0];
-            const options = parts.slice(1);
-            if (options.length > 12) return m.reply('Maximum 12 options allowed.');
-            try {
-                return await sock.sendMessage(m.from, {
-                    poll: {
-                        name: question,
-                        values: options,
-                        selectableCount: 1,
-                    },
-                });
-            } catch (err) {
-                return m.reply('❌ Failed to create poll: ' + err.message);
-            }
-        }
-
         case 'ping': {
             const start = Date.now();
             await m.reply('Pinging...');
             return m.reply(`🏓 Pong! ${Date.now() - start}ms`);
         }
-
         case 'alive': {
             const s = process.uptime();
-            const uptime = `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ${Math.floor(s % 60)}s`;
-            return m.reply(`✅ *${botName(settings, config)}* is alive!\nUptime: ${uptime}`);
+            const up = `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ${Math.floor(s % 60)}s`;
+            return m.reply(`✅ *${config.botName || 'SMILE PRIME MD'}* is alive!\nUptime: ${up}`);
         }
-
         case 'owner': {
-            if (!owners.length) return m.reply('No owner number configured yet.');
-            const list = owners.map((jid) => `wa.me/${jidToNumber(jid)}`).join('\n');
-            return m.reply(`👑 Owner contact:\n${list}`);
+            if (!owners.length) return m.reply('No owner configured.');
+            return m.reply(`👑 Owner contact:\n${owners.map(j => `wa.me/${jidToNumber(j)}`).join('\n')}`);
         }
 
+        // ───────────── MODE / ACCESS ─────────────
         case 'public':
             if (!owner) return m.reply('⛔ Owner only.');
             settings.set('public', true);
-            return m.reply('✅ Bot is now *public* — anyone can use commands.');
-
+            return m.reply('✅ Bot is now *public*.');
         case 'self':
             if (!owner) return m.reply('⛔ Owner only.');
             settings.set('public', false);
-            return m.reply('✅ Bot is now *self mode* — only the owner gets responses.');
-
+            return m.reply('✅ Bot is now *self mode*.');
         case 'setprefix': {
             if (!owner) return m.reply('⛔ Owner only.');
-            const value = (args[0] || '').toLowerCase();
-            if (!value) return m.reply('Usage: setprefix <character|none>');
-            const newPrefix = value === 'none' ? '' : args[0];
-            settings.set('prefix', newPrefix);
-            return m.reply(newPrefix ? `✅ Prefix set to: ${newPrefix}` : '✅ Prefix removed — commands now work with no prefix.');
+            const v = (args[0] || '').toLowerCase();
+            if (!v) return m.reply('Usage: setprefix <character|none>');
+            const np = v === 'none' ? '' : args[0];
+            settings.set('prefix', np);
+            return m.reply(np ? `✅ Prefix set to: ${np}` : '✅ Prefix removed.');
         }
-
         case 'setmenuimg': {
             if (!owner) return m.reply('⛔ Owner only.');
             const first = (args[0] || '').trim();
@@ -930,25 +574,27 @@ async function handleCommand(m, { args, sock, session }) {
             }
             if (/^https?:\/\//i.test(first)) {
                 settings.set('menuImage', first);
-                return m.reply('✅ Menu image set from the link. Send *' + P + 'menu* to see it.');
+                return m.reply(`✅ Menu image set. Send *${P}menu* to see it.`);
             }
             try {
                 const quoted = await getQuotedMessage(m);
                 const imgMsg = quoted?.message?.imageMessage || m.raw.message?.imageMessage;
-                if (!imgMsg) return m.reply(`Reply to an image with *${P}setmenuimg*, send an image with it as the caption, or give a link:\n${P}setmenuimg https://...\n${P}setmenuimg reset`);
-                const buffer = await downloadMediaMessage({ message: { imageMessage: imgMsg }, key: quoted?.message?.imageMessage ? quoted.key : m.key }, 'buffer', {});
+                if (!imgMsg) return m.reply(`Reply to an image with *${P}setmenuimg*, or give a link, or use "reset".`);
+                const buffer = await downloadMediaMessage(
+                    { message: { imageMessage: imgMsg }, key: quoted?.message?.imageMessage ? quoted.key : m.key },
+                    'buffer', {}
+                );
                 const dir = path.join(process.cwd(), 'session', sessionId);
                 fs.mkdirSync(dir, { recursive: true });
                 const dest = path.join(dir, 'menu-image.jpg');
                 fs.writeFileSync(dest, buffer);
                 settings.set('menuImage', dest);
-                return m.reply(`✅ Menu image updated. Send *${P}menu* to see it.`);
+                return m.reply(`✅ Menu image updated.`);
             } catch (err) {
                 log.error('setmenuimg', err.stack || err.message);
                 return m.reply(`❌ Could not set the menu image: ${err.message}`);
             }
         }
-
         case 'setfonts': {
             if (!owner) return m.reply('⛔ Owner only.');
             const style = (args[0] || '').toLowerCase();
@@ -958,9 +604,8 @@ async function handleCommand(m, { args, sock, session }) {
             }
             if (!FONT_NAMES.includes(style)) return m.reply(`Unknown style. Options: ${FONT_NAMES.join(', ')}, off`);
             settings.set('fontStyle', style);
-            return m.reply(`✅ Font style set to *${style}* (links are left untouched).`);
+            return m.reply(`✅ Font style set to *${style}*.`);
         }
-
         case 'autostatusview':
         case 'autostatuslike': {
             if (!owner) return m.reply('⛔ Owner only.');
@@ -969,640 +614,483 @@ async function handleCommand(m, { args, sock, session }) {
             const arg = (args[0] || '').toLowerCase();
             if (['on', 'true', 'yes', 'enable', '1'].includes(arg)) settings.set(key, true);
             else if (['off', 'false', 'no', 'disable', '0'].includes(arg)) settings.set(key, false);
-            else return m.reply(`${label}: *${settings.get(key, false) ? 'ON' : 'OFF'}*\nUse: ${settings.get('prefix', config.prefix)}${cmd} on | off`);
+            else return m.reply(`${label}: *${settings.get(key, false) ? 'ON' : 'OFF'}*\nUse: ${P}${cmd} on|off`);
             return m.reply(`✅ ${label}: *${settings.get(key) ? 'ON' : 'OFF'}*`);
         }
-
-        case 'statusemoji': {
-            if (!owner) return m.reply('⛔ Owner only.');
-            const list = args.join(' ').match(/\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/gu) || [];
-            if (!list.length) return m.reply(`Current status emojis: ${settings.get('statusEmojis', ['❤️']).join(' ')}\nSet: ${settings.get('prefix', config.prefix)}statusemoji ❤️ 🔥 😍 (one is picked at random)`);
-            settings.set('statusEmojis', list.slice(0, 10));
-            return m.reply(`✅ Status like emojis: ${list.slice(0, 10).join(' ')}`);
-        }
-
         case 'autoreactch': {
             if (!owner) return m.reply('⛔ Owner only.');
-            const arg = (args[0] || '').toLowerCase();
-            if (['on', 'true', 'yes', 'enable', '1'].includes(arg)) settings.set('channelReact', true);
-            else if (['off', 'false', 'no', 'disable', '0'].includes(arg)) settings.set('channelReact', false);
-            else return m.reply(`Auto react on channel: *${settings.get('channelReact', true) ? 'ON' : 'OFF'}*\nUse: ${settings.get('prefix', config.prefix)}autoreactch on | off`);
-            return m.reply(`✅ Auto react on channel: *${settings.get('channelReact') ? 'ON' : 'OFF'}*`);
+            const a = (args[0] || '').toLowerCase();
+            if (['on', 'true', 'yes', 'enable', '1'].includes(a)) settings.set('channelReact', true);
+            else if (['off', 'false', 'no', 'disable', '0'].includes(a)) settings.set('channelReact', false);
+            else return m.reply(`Auto react on channel: *${settings.get('channelReact', true) ? 'ON' : 'OFF'}*\nUse: ${P}autoreactch on|off`);
+            return m.reply(`✅ Channel auto-react: *${settings.get('channelReact') ? 'ON' : 'OFF'}*`);
         }
-
         case 'setdp': {
             if (!owner) return m.reply('⛔ Owner only.');
             const quoted = await getQuotedMessage(m);
             const imgMsg = quoted?.message?.imageMessage || m.raw.message?.imageMessage;
-            if (!imgMsg) return m.reply("Reply to an image to set it as the bot's profile picture.");
-            const buffer = await downloadMediaMessage({ message: { imageMessage: imgMsg }, key: quoted?.message?.imageMessage ? quoted.key : m.key }, 'buffer', {});
+            if (!imgMsg) return m.reply('Reply to an image to set it as bot profile picture.');
+            const buffer = await downloadMediaMessage(
+                { message: { imageMessage: imgMsg }, key: quoted?.message?.imageMessage ? quoted.key : m.key },
+                'buffer', {}
+            );
             await sock.updateProfilePicture(sock.user.id, buffer);
             return m.reply('✅ Profile picture updated.');
         }
-
         case 'getdp': {
             const quoted = await getQuotedMessage(m);
             const target = quoted?.key?.participant || quoted?.key?.remoteJid || m.sender;
             try {
                 const url = await sock.profilePictureUrl(target, 'image');
                 return m.send({ image: { url }, caption: `Profile picture: wa.me/${jidToNumber(target)}` });
-            } catch {
-                return m.reply('No profile picture found (or privacy settings block it).');
-            }
+            } catch { return m.reply('No profile picture found.'); }
         }
-
-        case 'rvo':
-        case 'vv': {
-            const quoted = await getQuotedMessage(m);
-            const viewOnce =
-                quoted?.message?.imageMessage?.viewOnce || quoted?.message?.videoMessage?.viewOnce
-                    ? quoted.message
-                    : quoted?.message?.viewOnceMessage?.message || quoted?.message?.viewOnceMessageV2?.message;
-            if (!viewOnce) return m.reply('Reply to a view-once message with this command.');
-            const mediaType = viewOnce.imageMessage ? 'imageMessage' : 'videoMessage';
-            const buffer = await downloadMediaMessage({ message: viewOnce, key: quoted.key }, 'buffer', {});
-            return m.send(
-                mediaType === 'imageMessage'
-                    ? { image: buffer, caption: viewOnce.imageMessage.caption || '' }
-                    : { video: buffer, caption: viewOnce.videoMessage.caption || '' }
-            );
-        }
-
-
-        case 'tiktok':
-        case 'tt':
-        case 'ttdl': {
-            const url = args[0] || '';
-            if (!url || !url.includes('tiktok.com')) {
-                return m.reply(`Provide a valid TikTok link: *${P}tiktok https://vm.tiktok.com/...*`);
-            }
-            await m.react('⏳');
-            try {
-                const res = await fetch(`https://tikwm.com/api/?url=${encodeURIComponent(url)}`);
-                const json = await res.json();
-                if (json.code !== 0 || !json.data) {
-                    return m.reply('❌ Failed to download TikTok video. Ensure the video is public.');
-                }
-                const { title, play, duration, author: ttAuthor } = json.data;
-                const caption = `🎬 *TikTok Video*\n\n📌 *Title:* ${title || 'No Title'}\n👤 *Author:* ${ttAuthor?.nickname || 'Unknown'} (@${ttAuthor?.unique_id || ''})\n⏱️ *Duration:* ${duration || 0}s\n\n么 *Downloaded by:* ${botName(settings, config)}`;
-                await sock.sendMessage(m.from, {
-                    video: { url: play },
-                    caption,
-                }, { quoted: m.raw });
-                return await m.react('✅');
-            } catch (err) {
-                return m.reply('❌ TikTok download failed: ' + err.message);
-            }
-        }
-
-        case 'gitclone':
-        case 'git': {
-            const url = args[0] || '';
-            const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-            if (!match) return m.reply(`Provide a GitHub link: *${P}gitclone https://github.com/username/repository*`);
-            const [, user, repo] = match;
-            const cleanRepo = repo.replace(/\.git$/, '');
-            await m.react('⏳');
-            try {
-                const zipUrl = `https://api.github.com/repos/${user}/${cleanRepo}/zipball`;
-                await sock.sendMessage(m.from, {
-                    document: { url: zipUrl },
-                    fileName: `${cleanRepo}.zip`,
-                    mimetype: 'application/zip',
-                    caption: `📦 *Repository:* ${user}/${cleanRepo}\n🔗 https://github.com/${user}/${cleanRepo}\n\n么 *Downloaded by:* ${botName(settings, config)}`,
-                }, { quoted: m.raw });
-                return await m.react('✅');
-            } catch (err) {
-                return m.reply('❌ GitHub download failed: ' + err.message);
-            }
-        }
-
-        case 'play': {
-            const query = args.join(' ');
-            if (!query) return m.reply('Usage: play <title or url>');
-            try {
-                await m.react('⏳');
-                // Using a working public API instead of the blocked one
-                const res = await fetch(`https://api.nexoracle.com/downloader/yt-play?apikey=free&q=${encodeURIComponent(query)}`);
-                const data = await res.json();
-                
-                if (!data.status || !data.result) {
-                    return m.reply('❌ Song not found or API error.');
-                }
-                
-                const result = data.result;
-                const caption = `🎵 *Title:* ${result.title}\n⏱️ *Duration:* ${result.duration}\n👤 *Channel:* ${result.channel}`;
-                
-                await sock.sendMessage(m.from, { image: { url: result.thumbnail }, caption }, { quoted: m.raw });
-                await sock.sendMessage(m.from, { audio: { url: result.audio }, mimetype: 'audio/mpeg' }, { quoted: m.raw });
-                await m.react('✅');
-            } catch (err) {
-                log.error('play', err.message);
-                return m.reply('❌ Failed to fetch the song. Please try again later.');
-            }
-        }
-
-        case 'ppwa': {
-            const link = args.join(' ').trim();
-            if (!link) return m.reply('Usage: ppwa <WhatsApp channel link>\nExample: ppwa https://whatsapp.com/channel/xxxx');
-            if (!link.includes('https://whatsapp.com/channel/')) return m.reply('Invalid channel link.');
-            try {
-                const data = await apiGet(`/tools/getppchwa?link=${encodeURIComponent(link)}`);
-                if (!data?.status || !data?.result?.photo) return m.reply('Channel photo not found.');
-                return m.send({ image: { url: data.result.photo }, caption: `📢 WhatsApp Channel Profile Photo\n🔗 ${data.result.invite || link}` });
-            } catch (err) {
-                log.error('ppwa', err.message);
-                return m.reply('Error fetching the channel photo.');
-            }
-        }
-
-        case 'webzip': {
-            const url = args.join(' ').trim();
-            if (!url || !url.startsWith('http')) return m.reply('Usage: webzip <url>');
-            try {
-                await m.reply('🌐 Fetching website...');
-                const data = await apiGet(`/tools/saveweb2zip?url=${encodeURIComponent(url)}`, 120000);
-                if (!data?.status || !data?.result) return m.reply('Failed to fetch the website.');
-                return m.send({ document: { url: data.result }, fileName: 'website.zip', mimetype: 'application/zip', caption: `📦 Website saved to zip\n🌍 ${url}` });
-            } catch (err) {
-                log.error('webzip', err.message);
-                return m.reply('Something went wrong processing the website.');
-            }
-        }
-
-        case 'upscale':
-        case 'hd': {
-            const quoted = await getQuotedMessage(m);
-            const imgMsg = quoted?.message?.imageMessage;
-            if (!imgMsg) return m.reply('Reply to a photo with this command.');
-            try {
-                await m.reply('⏳ Upscaling...');
-                const buffer = await downloadMediaMessage({ message: { imageMessage: imgMsg }, key: quoted.key }, 'buffer', {});
-                // Fixed API URL
-                const res = await fetch(`https://api.nexoracle.com/ai/upscale?apikey=free&url=${encodeURIComponent(await uploadToCatbox(buffer, 'upscale-input.jpg'))}`);
-                const data = await res.json();
-                if (!data.status) return m.reply('Upscale failed.');
-                return m.send({ image: { url: data.result.image }, caption: '✨ Upscale result' });
-            } catch (err) {
-                log.error('upscale', err.message);
-                return m.reply('An error occurred while upscaling.');
-            }
-        }
-
-
-        case 'imagine':
-        case 'dalle':
-        case 'aiimg': {
-            const prompt = args.join(' ').trim();
-            if (!prompt) return m.reply(`Provide an image prompt: *${P}imagine a cyberpunk warrior with glowing neon sword*`);
-            await m.react('🎨');
-            try {
-                const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
-                await sock.sendMessage(m.from, {
-                    image: { url: imgUrl },
-                    caption: `🎨 *Prompt:* ${prompt}\n\n么 *Generated by:* ${botName(settings, config)}`,
-                }, { quoted: m.raw });
-                return await m.react('✅');
-            } catch (err) {
-                return m.reply('❌ Image generation failed: ' + err.message);
-            }
-        }
-
-        case 'ai': {
-            const question = args.join(' ').trim();
-            if (!question) return m.reply(`Usage: *${P}ai what is quantum computing?*`);
-            await m.react('⏳');
-            try {
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 12000);
-                try {
-                    const res = await fetch(`https://text.pollinations.ai/${encodeURIComponent(question)}`, { signal: controller.signal });
-                    clearTimeout(timeout);
-                    if (res.ok) {
-                        const answer = (await res.text()).trim();
-                        if (answer && answer.length > 3) {
-                            return await m.reply(`🤖 *AI Assistant*\n\n${answer}`);
-                        }
-                    }
-                } catch {
-                    clearTimeout(timeout);
-                }
-
-                // Fallback API
-                const res = await fetch(`https://api.nexoracle.com/ai/chatgpt?apikey=free&q=${encodeURIComponent(question)}`);
-                const data = await res.json();
-                const ans = data?.result?.response || data?.result;
-                if (!ans) return m.reply('❌ AI did not return an answer.');
-                return m.reply(`🤖 *AI Assistant*\n\n${ans}`);
-            } catch (err) {
-                return m.reply('❌ AI request failed: ' + err.message);
-            }
-        }
-
-        case 'pin': {
-            const query = args.join(' ');
-            if (!query) return m.reply('Usage: pin <search term>');
-            try {
-                await m.reply('🔎 Searching Pinterest...');
-                const data = await apiGet(`https://api.siputzx.my.id/api/s/pinterest?query=${encodeURIComponent(query)}&type=image`);
-                const results = (data?.data || []).filter((v) => v.image_url).slice(0, 5);
-                if (!results.length) return m.reply('No results found.');
-                for (const r of results) await m.send({ image: { url: r.image_url } });
-                return;
-            } catch (err) {
-                log.error('pin', err.message);
-                return m.reply('Error fetching images.');
-            }
-        }
-
-        case 'spotify': {
-            const query = args.join(' ');
-            if (!query) return m.reply('Usage: spotify <song name>');
-            try {
-                await m.reply('⏳ Searching...');
-                // Fixed API URL
-                const res = await fetch(`https://api.nexoracle.com/downloader/spotify?apikey=free&q=${encodeURIComponent(query)}`);
-                const data = await res.json();
-                if (!data.status || !data.result) return m.reply('Song not found.');
-                const s = data.result;
-                const caption = `🎵 *SPOTIFY*\n\n🎶 Title: ${s.title}\n👤 Artist: ${s.artist}\n⏱ Duration: ${s.duration}\n🔗 ${s.url}`;
-                if (s.audio) return m.send({ audio: { url: s.audio }, mimetype: 'audio/mpeg', caption });
-                return m.reply(caption);
-            } catch (err) {
-                log.error('spotify', err.message);
-                return m.reply('Error while playing the song.');
-            }
-        }
-
-        case 'fixerror': {
-            const quoted = await getQuotedMessage(m);
-            let code = '';
-            if (quoted?.message?.conversation) code = quoted.message.conversation;
-            else if (quoted?.message?.extendedTextMessage?.text) code = quoted.message.extendedTextMessage.text;
-            else if (quoted?.message?.documentMessage) {
-                const buffer = await downloadMediaMessage({ message: quoted.message, key: quoted.key }, 'buffer', {});
-                code = buffer.toString('utf8');
-            }
-            if (!code) return m.reply('Reply to a code snippet or a .js file.');
-            if (code.length > 5000) return m.reply('Code is too long.');
-            try {
-                await m.reply('🧠 Fixing the code...');
-                const prompt = `What is wrong with the following code?\n${code}\nplease fix it with no explanation`;
-                const data = await apiGet(`/tools/fixerror?code=${encodeURIComponent(prompt)}&lang=javascript`, 30000);
-                if (!data?.status || !data?.result?.fixed) return m.reply('Failed to fix the code.');
-                const fixed = data.result.fixed;
-                if (fixed.length < 4000) return m.reply(`✅ Fixed\n\n\`\`\`javascript\n${fixed}\n\`\`\``);
-                return m.send({ document: Buffer.from(fixed), fileName: 'fixed.js', mimetype: 'text/javascript' });
-            } catch (err) {
-                log.error('fixerror', err.message);
-                return m.reply('An error occurred.');
-            }
-        }
-
-        case 'igstalk': {
-            const username = args[0];
-            if (!username) return m.reply('Usage: igstalk <username>');
-            try {
-                await m.reply('📥 Please wait...');
-                const data = await apiGet(`/stalk/ig?username=${encodeURIComponent(username)}`);
-                if (!data.status) return m.reply('Target not found — check the username.');
-                const res = data.result;
-                const cap =
-                    `*IG STALKER - ${(res.fullname || '').toUpperCase()}*\n\n` +
-                    `Username: @${res.username}\n` +
-                    `Bio: ${res.biography || '-'}\n\n` +
-                    `Followers: ${res.followers}\n` +
-                    `Following: ${res.following}\n` +
-                    `Posts: ${res.posts}\n\n` +
-                    `Private: ${res.is_private ? 'Yes' : 'No'}\n` +
-                    `Verified: ${res.is_verified ? 'Yes' : 'No'}`;
-                if (res.profile_pic) return m.send({ image: { url: `https://images.weserv.nl/?url=${encodeURIComponent(res.profile_pic)}` }, caption: cap });
-                return m.reply(cap);
-            } catch (err) {
-                log.error('igstalk', err.message);
-                return m.reply('Error fetching data.');
-            }
-        }
-
-        case 'toanime': {
-            const quoted = await getQuotedMessage(m);
-            const imgMsg = quoted?.message?.imageMessage;
-            if (!imgMsg) return m.reply('Reply to a photo with this command.');
-            try {
-                await m.reply('⏳ Processing image...');
-                const buffer = await downloadMediaMessage({ message: { imageMessage: imgMsg }, key: quoted.key }, 'buffer', {});
-                // Fixed API URL
-                const res = await fetch(`https://api.nexoracle.com/ai/toanime?apikey=free&url=${encodeURIComponent(await uploadToCatbox(buffer, 'toanime-input.jpg'))}`);
-                const data = await res.json();
-                if (!data.status) return m.reply('Failed to process the image.');
-                return m.send({ image: { url: data.result.image }, caption: '✅ Converted to anime style' });
-            } catch (err) {
-                log.error('toanime', err.message);
-                return m.reply('An error occurred.');
-            }
-        }
-
-        case 'editimg': {
-            const quoted = await getQuotedMessage(m);
-            const imgMsg = quoted?.message?.imageMessage;
-            const prompt = args.join(' ');
-            if (!prompt) return m.reply('Reply to a photo with a prompt.\nExample: editimg change the shirt to black');
-            try {
-                let hostedUrl;
-                if (imgMsg) {
-                    const buffer = await downloadMediaMessage({ message: { imageMessage: imgMsg }, key: quoted.key }, 'buffer', {});
-                    hostedUrl = await uploadToCatbox(buffer, 'editimg-input.jpg');
-                } else {
-                    const match = prompt.match(/https?:\/\/\S+/);
-                    if (!match) return m.reply('Reply to a photo, or include an image URL in the prompt.');
-                    hostedUrl = match[0];
-                }
-                await m.reply('⏳ Editing...');
-                const data = await apiGet(`/edit/nanobananav3?prompt=${encodeURIComponent(prompt)}&url=${encodeURIComponent(hostedUrl)}`);
-                if (!data.status) return m.reply('Failed to edit the image.');
-                return m.send({ image: { url: data.result.result_url }, caption: `Done.\n\nPrompt: ${prompt}` });
-            } catch (err) {
-                log.error('editimg', err.message);
-                return m.reply('An error occurred.');
-            }
-        }
-
-        case 'pindl': {
-            const url = args[0];
-            if (!url) return m.reply('Usage: pindl <pinterest link>');
-            try {
-                await m.reply('⏳ Fetching data...');
-                const data = await apiGet(`/download/pindl?url=${encodeURIComponent(url)}`);
-                if (!data?.status || !data?.result?.status) return m.reply('Failed to fetch data.');
-                const best = data.result.best;
-                if (!best?.url) return m.reply('Media not found.');
-                const caption = `📌 *Pinterest Downloader*\n\n🎞️ Quality: ${best.quality}\n📦 Total media: ${data.result.total}`;
-                if (best.url.includes('.mp4')) return m.send({ video: { url: best.url }, caption });
-                return m.send({ image: { url: best.url }, caption });
-            } catch (err) {
-                log.error('pindl', err.message);
-                return m.reply('An error occurred while processing.');
-            }
-        }
-
-        case 'tourl': {
-            const quoted = await getQuotedMessage(m);
-            const media = quoted?.message?.imageMessage || quoted?.message?.videoMessage || quoted?.message?.documentMessage;
-            const mediaType = quoted?.message?.imageMessage ? 'imageMessage' : quoted?.message?.videoMessage ? 'videoMessage' : 'documentMessage';
-            if (!media) return m.reply('Reply to a photo/video/file with this command.');
-            try {
-                const buffer = await downloadMediaMessage({ message: { [mediaType]: media }, key: quoted.key }, 'buffer', {});
-                const url = await uploadToCatbox(buffer, media.fileName || 'upload');
-                return m.reply(`✅ Uploaded!\n🔗 ${url}`);
-            } catch (err) {
-                log.error('tourl', err.message);
-                return m.reply(`Upload failed: ${err.message}`);
-            }
-        }
-
-        // ───────────────────────── lookups ─────────────────────────
-        case 'checkban': {
-            const target = resolveTarget(m, args);
-            if (target && !owner && numOf(target) !== numOf(m.sender)) return m.reply('⛔ Only the owner can check other numbers.');
-            const who = target || m.senderAlt || m.sender;
-            const num = numOf(who);
-            const botBanned = (settings.get('banned', []) || []).includes(num);
-            let wa = 'could not check';
-            if (String(who).endsWith('@lid')) wa = 'cannot check a hidden (LID) id - give the phone number';
-            else {
-                try {
-                    const [r] = (await sock.onWhatsApp(`${num}@s.whatsapp.net`)) || [];
-                    wa = r?.exists ? 'registered ✅' : 'not found on WhatsApp ❌';
-                } catch (err) {
-                    wa = `check failed (${err.message})`;
-                }
-            }
-            return m.reply(
-                `🔎 *Ban check* · wa.me/${num}\n\n` +
-                    `🤖 This bot: ${botBanned ? '🚫 *banned*' : '✅ not banned'}\n` +
-                    `📱 WhatsApp: ${wa}\n\n` +
-                    `_WhatsApp does not tell bots about bans. A number that is banned (or closed, or never existed) shows as "not found", so that result cannot tell those apart._`
-            );
-        }
-
-        case 'idch': {
-            const arg = args.join(' ').trim();
-            const code = arg.match(/channel\/([A-Za-z0-9_-]+)/)?.[1];
-            const direct = arg.match(/\b\d{10,}@newsletter\b/)?.[0];
-            if (!code && !direct) return m.reply(`Usage: ${P}idch <channel link>\nExample: ${P}idch https://whatsapp.com/channel/0029Va...\n(you get the channel ID with a copy button)`);
-            try {
-                const meta = direct ? await sock.newsletterMetadata('jid', direct) : await sock.newsletterMetadata('invite', code);
-                const jid = meta?.id || direct;
-                if (!jid) return m.reply('❌ Channel not found. Check the link.');
-                const name = meta?.name || meta?.thread_metadata?.name?.text || 'Channel';
-                const subs = meta?.subscribers ?? meta?.thread_metadata?.subscribers_count;
-                return sendCopy(m, { title: 'Channel ID', text: `📣 *${name}*${subs ? `\n👥 ${Number(subs).toLocaleString('en-US')} followers` : ''}\n🆔 ${jid}`, value: jid, label: 'Copy ID' });
-            } catch (err) {
-                return m.reply(`❌ Could not read that channel: ${err.message}`);
-            }
-        }
-
-        // ───────────────────────── customize ─────────────────────────
-        case 'setbotname': {
-            if (!owner) return m.reply('⛔ Owner only.');
-            const name = args.join(' ').trim().slice(0, 40);
-            if (!name) return m.reply(`Usage: ${P}setbotname <name>\nUse "${P}setbotname reset" for the default (${config.botName}).`);
-            if (/^(reset|default)$/i.test(name)) {
-                settings.set('botName', '');
-                return m.reply(`✅ Bot name reset to *${config.botName}*.`);
-            }
-            settings.set('botName', name);
-            return m.reply(`✅ Your bot is now called *${name}*.`);
-        }
-
         case 'mode': {
             if (!owner) return m.reply('⛔ Owner only.');
             const a = (args[0] || '').toLowerCase();
             if (a === 'public') settings.set('public', true);
             else if (a === 'self' || a === 'private') settings.set('public', false);
-            else if (a === 'gc' || a === 'group') settings.set('workMode', 'gc');
-            else if (a === 'dm' || a === 'pm') settings.set('workMode', 'dm');
-            else if (a === 'all' || a === 'both') settings.set('workMode', 'all');
-            else {
-                const wm = { all: 'groups + DMs', gc: 'groups only', dm: 'DMs only' }[settings.get('workMode', 'all')];
-                return m.reply(`*Mode*\nAccess: *${settings.get('public', true) ? 'public' : 'self'}*\nWorks in: *${wm}*\n\n${P}mode public | self\n${P}mode gc  (groups only)\n${P}mode dm  (DMs only)\n${P}mode all`);
-            }
-            const wm = { all: 'groups + DMs', gc: 'groups only', dm: 'DMs only' }[settings.get('workMode', 'all')];
-            return m.reply(`✅ Access: *${settings.get('public', true) ? 'public' : 'self'}* · Works in: *${wm}*\n(the owner and sudo users can always use the bot)`);
+            else return m.reply(`*Access:* ${settings.get('public', true) ? 'public' : 'self'}\n${P}mode public | self`);
+            return m.reply(`✅ Access: *${settings.get('public', true) ? 'public' : 'self'}*`);
         }
-
         case 'settings':
         case 'config': {
             if (!owner) return m.reply('⛔ Owner only.');
             const on = (v) => (v ? '✅ ON' : '❌ OFF');
-            const wm = { all: 'groups + DMs', gc: 'groups only', dm: 'DMs only' }[settings.get('workMode', 'all')];
-            const ad = settings.get('antidelete', {});
-            const lines = [
-                `⚙️ *${botName(settings, config)} — settings*`,
-                '',
-                `*Look*`,
-                `• Name: ${botName(settings, config)}   (${P}setbotname)`,
-                `• Prefix: ${P || 'none'}   (${P}setprefix)`,
-                `• Menu image: ${settings.get('menuImage') ? 'custom' : 'none'}   (${P}setmenuimg)`,
-                `• Font: ${settings.get('fontStyle') || 'normal'}   (${P}setfonts)`,
-                '',
-                `*Access*`,
-                `• Mode: ${settings.get('public', true) ? 'public' : 'self'} · ${wm}   (${P}mode)`,
-                `• Sudo users: ${(settings.get('sudo', []) || []).length}   (${P}addsudo)`,
-                `• Banned: ${(settings.get('banned', []) || []).length}   (${P}ban)`,
-                '',
-                `*Protection*`,
-                `• Anti-delete: ${on(ad.enabled)}${ad.enabled ? ` (${ad.mode === 'dm' ? 'owner DM' : 'same chat'})` : ''}   (${P}antidelete)`,
-                `• Anti-call: ${settings.get('antiCall', 'off').toUpperCase()}   (${P}anticall)`,
-                m.isGroup ? `• Antilink here: ${antilinkCfg(settings, m.from).mode.toUpperCase()}   (${P}antilink)` : `• Antilink: set it inside a group`,
-                '',
-                `*Automation*`,
-                `• AI auto-reply: ${on(settings.get('autoReply'))}   (${P}autoreply)`,
-                `• Auto typing: ${on(settings.get('autoType'))}   (${P}autotype)`,
-                `• Auto recording: ${on(settings.get('autoRecord'))}   (${P}autorecord)`,
-                `• Recording + typing: ${on(settings.get('autoRecordType'))}   (${P}autorecordtype)`,
-                `• Always online: ${on(settings.get('alwaysOnline'))}   (${P}alwaysonline)`,
-                `• Status view: ${on(settings.get('autoStatusView'))}   (${P}autostatusview)`,
-                `• Status like: ${on(settings.get('autoStatusLike'))} ${settings.get('statusEmojis', ['❤️']).join('')}   (${P}autostatuslike)`,
-                `• Channel auto-react: ${on(settings.get('channelReact', true))}   (${P}autoreactch)`,
-            ];
-            return m.reply(lines.join('\n'));
+            return m.reply([
+                `⚙️ *Settings*`,
+                `• Name: ${config.botName || 'SMILE PRIME MD'} (${P}setbotname)`,
+                `• Prefix: ${P || 'none'} (${P}setprefix)`,
+                `• Menu image: ${settings.get('menuImage') ? 'custom' : 'default'}`,
+                `• Font: ${settings.get('fontStyle') || 'normal'}`,
+                `• Access: ${settings.get('public', true) ? 'public' : 'self'}`,
+                `• Sudo: ${(settings.get('sudo', []) || []).length}`,
+                `• Banned: ${(settings.get('banned', []) || []).length}`,
+                `• Anti-call: ${settings.get('antiCall', 'off').toUpperCase()}`,
+                `• Anti-delete: ${on(settings.get('antidelete', {}).enabled)}`,
+                `• Always online: ${on(settings.get('alwaysOnline'))}`,
+                `• Status view: ${on(settings.get('autoStatusView'))}`,
+                `• Status like: ${on(settings.get('autoStatusLike'))}`,
+            ].join('\n'));
         }
-
         case 'resetsettings': {
             if (!owner) return m.reply('⛔ Owner only.');
-            if ((args[0] || '').toLowerCase() !== 'confirm') return m.reply(`This resets name, prefix, menu image, font, modes, protection and automation to defaults.\nSudo, bans and owners are kept.\n\nType *${P}resetsettings confirm* to continue.`);
+            if ((args[0] || '').toLowerCase() !== 'confirm') return m.reply(`Type *${P}resetsettings confirm* to reset all settings (owners/bans/sudo kept).`);
             const defaults = {
-                public: true, prefix: config.prefix, menuImage: DEFAULT_MENU_IMAGE, fontStyle: null, botName: '', workMode: 'all',
+                public: true, prefix: config.prefix, menuImage: DEFAULT_MENU_IMAGE, fontStyle: null,
                 antilink: {}, antilinkWarns: {}, antidelete: { enabled: false, mode: 'chat' }, antiCall: 'off',
-                autoReply: false, autoType: false, autoRecord: false, autoRecordType: false, alwaysOnline: false,
-                autoStatusView: true, autoStatusLike: true, statusEmojis: ['❤️'], channelReact: true,
+                alwaysOnline: false, autoStatusView: true, autoStatusLike: true, channelReact: true,
             };
             for (const [k, v] of Object.entries(defaults)) settings.set(k, v);
-            return m.reply('✅ All settings are back to default.');
+            return m.reply('✅ Settings reset to default.');
         }
 
-        // ───────────────────────── access control ─────────────────────────
+        // ───────────── SUDO / BAN / BLOCK ─────────────
         case 'addsudo':
         case 'delsudo': {
             if (!owner) return m.reply('⛔ Owner only.');
             const target = resolveTarget(m, args);
-            if (!target) return m.reply(`Reply to a person, @mention them, or type the number.\nExample: ${P}${cmd} 254712345678`);
+            if (!target) return m.reply(`Reply/@mention/number.\nExample: ${P}${cmd} 254712345678`);
             const num = numOf(target);
             const list = settings.get('sudo', []);
             if (cmd === 'addsudo') {
-                if ([...ownNums(sock), ...owners.map(numOf)].includes(num)) return m.reply('That number is already an owner.');
-                if (list.includes(num)) return m.reply('Already a sudo user.');
+                if (list.includes(num)) return m.reply('Already sudo.');
                 settings.set('sudo', [...list, num]);
-                return m.reply(`✅ @${num} is now *sudo* — owner commands work for them, even in self mode.`, { mentions: [target] });
+                return m.reply(`✅ @${num} is now sudo.`, { mentions: [target] });
             }
-            if (!list.includes(num)) return m.reply('That number is not a sudo user.');
-            settings.set('sudo', list.filter((x) => x !== num));
-            return m.reply(`✅ @${num} is no longer sudo.`, { mentions: [target] });
+            if (!list.includes(num)) return m.reply('Not a sudo user.');
+            settings.set('sudo', list.filter(x => x !== num));
+            return m.reply(`✅ @${num} removed from sudo.`, { mentions: [target] });
         }
-
         case 'listsudo': {
             if (!owner) return m.reply('⛔ Owner only.');
             const list = settings.get('sudo', []);
-            if (!list.length) return m.reply(`No sudo users yet.\nAdd one: ${P}addsudo <number>`);
-            return m.reply(`👑 *Sudo users (${list.length})*\n${list.map((n, i) => `${i + 1}. wa.me/${n}`).join('\n')}`);
+            if (!list.length) return m.reply(`No sudo users. Add: ${P}addsudo <number>`);
+            return m.reply(`👑 *Sudo users:*\n${list.map((n, i) => `${i + 1}. wa.me/${n}`).join('\n')}`);
         }
-
         case 'ban':
         case 'unban': {
             if (!owner) return m.reply('⛔ Owner only.');
             const target = resolveTarget(m, args, { allowChat: true });
-            if (!target) return m.reply(`Reply to a person, @mention them, or type the number.\nExample: ${P}${cmd} 254712345678`);
+            if (!target) return m.reply(`Reply/@mention/number.`);
             const num = numOf(target);
             const list = settings.get('banned', []);
             if (cmd === 'ban') {
-                if (ownerNums(sock, settings).includes(num)) return m.reply('⛔ You cannot ban an owner or sudo user.');
                 if (list.includes(num)) return m.reply('Already banned.');
                 settings.set('banned', [...list, num]);
-                return m.reply(`🚫 @${num} is banned — the bot will ignore them.`, { mentions: [target] });
+                return m.reply(`🚫 @${num} is banned.`, { mentions: [target] });
             }
-            if (!list.includes(num)) return m.reply('That number is not banned.');
-            settings.set('banned', list.filter((x) => x !== num));
+            if (!list.includes(num)) return m.reply('Not banned.');
+            settings.set('banned', list.filter(x => x !== num));
             return m.reply(`✅ @${num} is unbanned.`, { mentions: [target] });
         }
-
         case 'listbanned': {
             if (!owner) return m.reply('⛔ Owner only.');
             const list = settings.get('banned', []);
             if (!list.length) return m.reply('Nobody is banned.');
-            return m.reply(`🚫 *Banned (${list.length})*\n${list.map((n, i) => `${i + 1}. wa.me/${n}`).join('\n')}`);
+            return m.reply(`🚫 *Banned:*\n${list.map((n, i) => `${i + 1}. wa.me/${n}`).join('\n')}`);
         }
-
         case 'block':
         case 'unblock': {
             if (!owner) return m.reply('⛔ Owner only.');
             const target = resolveTarget(m, args, { allowChat: true });
-            if (!target) return m.reply(`Reply to a person, @mention them, type the number, or use it in their private chat.`);
-            if (ownerNums(sock, settings).includes(numOf(target))) return m.reply('⛔ You cannot block an owner or sudo user.');
+            if (!target) return m.reply(`Reply/@mention/number.`);
             try {
                 await sock.updateBlockStatus(target, cmd === 'block' ? 'block' : 'unblock');
                 return m.reply(`✅ ${cmd === 'block' ? 'Blocked' : 'Unblocked'} wa.me/${numOf(target)}`);
-            } catch (err) {
-                return m.reply(`❌ Could not ${cmd}: ${err.message}`);
-            }
+            } catch (err) { return m.reply(`❌ ${err.message}`); }
         }
-
         case 'listblocked': {
             if (!owner) return m.reply('⛔ Owner only.');
             try {
                 const list = (await sock.fetchBlocklist()) || [];
-                if (!list.length) return m.reply('Your block list is empty.');
-                return m.reply(`⛔ *Blocked (${list.length})*\n${list.map((j, i) => `${i + 1}. wa.me/${numOf(j)}`).join('\n')}`);
-            } catch (err) {
-                return m.reply(`❌ Could not read the block list: ${err.message}`);
-            }
+                if (!list.length) return m.reply('Block list is empty.');
+                return m.reply(`⛔ *Blocked:*\n${list.map((j, i) => `${i + 1}. wa.me/${numOf(j)}`).join('\n')}`);
+            } catch (err) { return m.reply(`❌ ${err.message}`); }
         }
 
-        // ───────────────────────── text tools ─────────────────────────
+        // ───────────── GROUP MOD ─────────────
+        case 'setname': {
+            if (!m.isGroup) return m.reply('❌ Groups only.');
+            if (!owner && !(await isGroupAdmin(sock, m.from, senderNumsOf(m.sender)))) return m.reply('⛔ Admin only.');
+            const n = args.join(' ');
+            if (!n) return m.reply(`Usage: ${P}setname <name>`);
+            try { await sock.groupUpdateSubject(m.from, n); return m.reply(`✅ Group name updated.`); }
+            catch { return m.reply('❌ Failed — make sure I am admin.'); }
+        }
+        case 'linkgroup': {
+            if (!m.isGroup) return m.reply('❌ Groups only.');
+            if (!owner && !(await isGroupAdmin(sock, m.from, senderNumsOf(m.sender)))) return m.reply('⛔ Admin only.');
+            try {
+                const code = await sock.groupInviteCode(m.from);
+                return m.reply(`🔗 https://chat.whatsapp.com/${code}`);
+            } catch { return m.reply('❌ Failed — make sure I am admin.'); }
+        }
+        case 'kickall': {
+            if (!m.isGroup) return m.reply('❌ Groups only.');
+            if (!owner && !(await isGroupAdmin(sock, m.from, senderNumsOf(m.sender)))) return m.reply('⛔ Admin only.');
+            try {
+                const meta = await sock.groupMetadata(m.from);
+                const botJid = sock.user?.id?.split(':')[0] + '@s.whatsapp.net';
+                const toKick = meta.participants
+                    .filter(p => p.id !== botJid && p.id !== m.sender && p.admin === null)
+                    .map(p => p.id);
+                if (!toKick.length) return m.reply('No members to kick.');
+                await m.reply(`🚨 Kicking ${toKick.length} members...`);
+                await sock.groupParticipantsUpdate(m.from, toKick, 'remove');
+                return m.reply('✅ Done.');
+            } catch { return m.reply('❌ Failed — make sure I am admin.'); }
+        }
+        case 'del':
+        case 'delete': {
+            const quoted = await getQuotedMessage(m);
+            if (!quoted) return m.reply(`Reply to a message with *${P}del*.`);
+            if (m.isGroup && !owner && !(await isGroupAdmin(sock, m.from, senderNumsOf(m.sender)))) return m.reply('⛔ Admin only.');
+            try {
+                await sock.sendMessage(m.from, { delete: quoted.key });
+                await sock.sendMessage(m.from, { delete: m.key }).catch(() => {});
+            } catch { return m.reply('❌ Failed to delete — make sure I am admin.'); }
+            return;
+        }
+        case 'warn': {
+            if (!m.isGroup) return m.reply('⛔ Groups only.');
+            if (!owner && !(await isGroupAdmin(sock, m.from, senderNumsOf(m.sender)))) return m.reply('⛔ Admin only.');
+            const target = resolveTarget(m, args);
+            if (!target) return m.reply(`Mention/reply: *${P}warn @user [reason]*`);
+            const targetNum = jidToNumber(target);
+            if (await isGroupAdmin(sock, m.from, [targetNum])) return m.reply('⛔ Cannot warn an admin.');
+
+            // ── fixed reason parsing ──
+            const reasonArgs = args.filter(a => !a.startsWith('@') && !/\d{5,}/.test(a));
+            const reason = reasonArgs.join(' ').trim() || 'No reason specified';
+
+            const groupWarns = settings.get('groupWarns', {});
+            if (!groupWarns[m.from]) groupWarns[m.from] = {};
+            const cur = (groupWarns[m.from][targetNum] || 0) + 1;
+            const maxWarn = 3;
+
+            if (cur >= maxWarn) {
+                delete groupWarns[m.from][targetNum];
+                settings.set('groupWarns', groupWarns);
+                await m.reply(`⛔ @${targetNum} reached ${maxWarn}/${maxWarn} warnings — removed.\nReason: ${reason}`, { mentions: [target] });
+                if (await botIsAdmin(sock, m.from)) {
+                    await sock.groupParticipantsUpdate(m.from, [target], 'remove').catch(() => {});
+                } else {
+                    await m.reply('⚠️ Give me admin to remove members.');
+                }
+            } else {
+                groupWarns[m.from][targetNum] = cur;
+                settings.set('groupWarns', groupWarns);
+                return m.reply(`⚠️ @${targetNum} warned (${cur}/${maxWarn}).\nReason: ${reason}`, { mentions: [target] });
+            }
+            return;
+        }
+        case 'unwarn': {
+            if (!m.isGroup) return m.reply('⛔ Groups only.');
+            if (!owner && !(await isGroupAdmin(sock, m.from, senderNumsOf(m.sender)))) return m.reply('⛔ Admin only.');
+            const target = resolveTarget(m, args);
+            if (!target) return m.reply(`Mention/reply: *${P}unwarn @user*`);
+            const targetNum = jidToNumber(target);
+            const gw = settings.get('groupWarns', {});
+            if (!gw[m.from]?.[targetNum]) return m.reply(`@${targetNum} has 0 warnings.`, { mentions: [target] });
+            gw[m.from][targetNum] = Math.max(0, gw[m.from][targetNum] - 1);
+            const remaining = gw[m.from][targetNum];
+            if (remaining === 0) delete gw[m.from][targetNum];
+            settings.set('groupWarns', gw);
+            return m.reply(`✅ Removed 1 warning. Remaining: ${remaining}/3`, { mentions: [target] });
+        }
+        case 'checkwarn':
+        case 'warns': {
+            if (!m.isGroup) return m.reply('⛔ Groups only.');
+            const target = resolveTarget(m, args) || m.sender;
+            const targetNum = jidToNumber(target);
+            const gw = settings.get('groupWarns', {});
+            const c = gw[m.from]?.[targetNum] || 0;
+            return m.reply(`📋 Warnings for @${targetNum}: *${c}/3*`, { mentions: [target] });
+        }
+        case 'resetwarn': {
+            if (!m.isGroup) return m.reply('⛔ Groups only.');
+            if (!owner && !(await isGroupAdmin(sock, m.from, senderNumsOf(m.sender)))) return m.reply('⛔ Admin only.');
+            const target = resolveTarget(m, args);
+            if (!target) return m.reply(`Mention/reply: *${P}resetwarn @user*`);
+            const targetNum = jidToNumber(target);
+            const gw = settings.get('groupWarns', {});
+            if (gw[m.from]?.[targetNum]) { delete gw[m.from][targetNum]; settings.set('groupWarns', gw); }
+            return m.reply(`✅ Reset warnings for @${targetNum}.`, { mentions: [target] });
+        }
+        case 'poll': {
+            if (!m.isGroup) return m.reply('⛔ Groups only.');
+            const raw = args.join(' ').trim();
+            if (!raw.includes('|')) return m.reply(`Usage: *${P}poll Question | Opt1 | Opt2*`);
+            const parts = raw.split('|').map(p => p.trim()).filter(Boolean);
+            if (parts.length < 3) return m.reply('Need a question + at least 2 options.');
+            if (parts.length > 13) return m.reply('Max 12 options.');
+            try {
+                return await sock.sendMessage(m.from, {
+                    poll: { name: parts[0], values: parts.slice(1), selectableCount: 1 }
+                });
+            } catch (err) { return m.reply('❌ Poll failed: ' + err.message); }
+        }
+
+        // ───────────── ANTILINK ─────────────
+        case 'antilink': {
+            if (!(await requireGroup(m))) return;
+            const admin = owner || (await isGroupAdmin(sock, m.from, senderNumsOf(m.sender)));
+            if (!admin) return m.reply('⛔ Admin only.');
+            const sub = (args[0] || '').toLowerCase();
+            const cfg = antilinkCfg(settings, m.from);
+            const explain = { del: 'links are deleted', warn: `deleted + warned (kick at ${cfg.limit})`, kick: 'deleted + sender removed' };
+
+            if (['del', 'delete', 'warn', 'kick'].includes(sub)) {
+                const mode = sub === 'delete' ? 'del' : sub;
+                setAntilinkCfg(settings, m.from, { mode });
+                return m.reply(`✅ Antilink *${mode.toUpperCase()}*: ${explain[mode]}.`);
+            }
+            if (sub === 'off') {
+                setAntilinkCfg(settings, m.from, { mode: 'off' });
+                return m.reply('✅ Antilink *OFF*.');
+            }
+            if (sub === 'setwarn') {
+                const n = parseInt(args[1], 10);
+                if (!(n >= 1 && n <= 10)) return m.reply(`Usage: ${P}antilink setwarn <1-10>`);
+                setAntilinkCfg(settings, m.from, { limit: n });
+                return m.reply(`✅ Warn limit: ${n}`);
+            }
+            if (sub === 'resetwarn') {
+                const target = resolveTarget(m, args.slice(1));
+                const warns = getWarns(settings, m.from);
+                if (target) {
+                    const key = Object.keys(warns).find(k => senderNumsOf(target).includes(k));
+                    if (key) delete warns[key];
+                    setWarns(settings, m.from, warns);
+                    return m.reply(`✅ Warnings reset for @${numOf(target)}.`, { mentions: [target] });
+                }
+                setWarns(settings, m.from, {});
+                return m.reply('✅ All warnings reset.');
+            }
+            const warned = Object.keys(getWarns(settings, m.from)).length;
+            const iAmAdmin = await botIsAdmin(sock, m.from);
+            return m.reply(
+                `*Antilink* — mode: *${cfg.mode.toUpperCase()}*, limit: ${cfg.limit}, warned: ${warned}\nBot admin: ${iAmAdmin ? '✅' : '❌'}\n\n` +
+                `${P}antilink del | warn | kick | setwarn <n> | resetwarn [@user] | off`
+            );
+        }
+
+        // ───────────── PROTECTION ─────────────
+        case 'anticall': {
+            if (!owner) return m.reply('⛔ Owner only.');
+            const a = (args[0] || '').toLowerCase();
+            if (!['hang', 'block', 'off'].includes(a)) return m.reply(`Anti-call: *${settings.get('antiCall', 'off').toUpperCase()}*\n${P}anticall hang|block|off`);
+            settings.set('antiCall', a);
+            return m.reply(a === 'off' ? '✅ Anti-call OFF.' : `✅ Anti-call *${a.toUpperCase()}*.`);
+        }
+        case 'antidelete':
+        case 'antidel': {
+            if (!owner) return m.reply('⛔ Owner only.');
+            const action = (args[0] || '').toLowerCase();
+            const modeArg = (args[1] || '').toLowerCase();
+            const cur = settings.get('antidelete', { enabled: false, mode: 'chat' });
+            const lbl = (x) => (x === 'dm' ? 'Owner DM' : 'Same Chat');
+            const onOff = (v) => (v ? '✅ ON' : '❌ OFF');
+
+            if (!action || action === 'status') {
+                return m.reply(`🛡️ *Anti-delete*: ${onOff(cur.enabled)} · mode: *${lbl(cur.mode)}*\n\n${P}antidelete on|off|on chat|on dm|mode chat|mode dm`);
+            }
+            if (action === 'on' || action === 'off') {
+                const enabled = action === 'on';
+                let mode = cur.mode || 'chat';
+                if (enabled && (modeArg === 'chat' || modeArg === 'dm')) mode = modeArg;
+                settings.set('antidelete', { enabled, mode });
+                return m.reply(enabled ? `✅ Anti-delete *ON* (${lbl(mode)}).` : '✅ Anti-delete *OFF*.');
+            }
+            if (action === 'mode' || action === 'chat' || action === 'dm') {
+                const mode = action === 'mode' ? modeArg : action;
+                if (mode !== 'chat' && mode !== 'dm') return m.reply(`Use: ${P}antidelete mode chat|dm`);
+                settings.set('antidelete', { enabled: cur.enabled, mode });
+                return m.reply(`✅ Mode → *${lbl(mode)}*.`);
+            }
+            return m.reply(`Unknown option. Use *${P}antidelete* to see options.`);
+        }
+
+        // ───────────── STICKER / CONVERSION ─────────────
+        case 'sticker':
+        case 'stiker':
+        case 's': {
+            try {
+                const quoted = await getQuotedMessage(m);
+                const msg = quoted?.message || m.raw?.message;
+                if (!msg) return m.reply('📸 Reply to an image, video or sticker with .s [pack|author]');
+                const isImg = !!msg.imageMessage, isVid = !!msg.videoMessage, isStk = !!msg.stickerMessage;
+                if (!isImg && !isVid && !isStk) return m.reply('❌ Reply to image/video/sticker.');
+                if (isVid && Number(msg.videoMessage.seconds || 0) > 10) return m.reply('❌ Video must be ≤10s.');
+
+                await m.reply('⏳ Creating sticker...');
+                const raw = await downloadMediaMessage({ message: msg, key: quoted?.key || m.key }, 'buffer', {});
+                let pack = '';
+                let stkAuthor = ' 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙';
+                const metaRaw = args.join(' ').trim();
+                if (metaRaw) {
+                    const parts = metaRaw.includes('|') ? metaRaw.split('|') : metaRaw.split(',');
+                    if (parts[0]) pack = parts[0].trim();
+                    if (parts[1]) stkAuthor = parts[1].trim();
+                }
+                let webp;
+                if (isStk) webp = await writeExifWebp(raw, { packname: pack, author: stkAuthor });
+                else webp = await writeExifWebp(await convertMediaToWebp(raw, isVid), { packname: pack, author: stkAuthor });
+                await sock.sendMessage(m.from, { sticker: webp }, { quoted: m.raw });
+            } catch (err) { log.error('sticker', err.message); return m.reply('❌ Failed: ' + (err.message || 'unknown')); }
+            break;
+        }
+        case 'take':
+        case 'steal':
+        case 'wm': {
+            try {
+                const quoted = await getQuotedMessage(m);
+                const sticker = quoted?.message?.stickerMessage;
+                if (!sticker) return m.reply('❌ Reply to a sticker with .take [pack|author]');
+                await m.reply('⏳ Updating metadata...');
+                const buffer = await downloadMediaMessage({ message: { stickerMessage: sticker }, key: quoted.key }, 'buffer', {});
+                let pack = '';
+                let stkAuthor = ' 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙';
+                const metaRaw = args.join(' ').trim();
+                if (metaRaw) {
+                    const parts = metaRaw.includes('|') ? metaRaw.split('|') : metaRaw.split(',');
+                    if (parts[0]) pack = parts[0].trim();
+                    if (parts[1]) stkAuthor = parts[1].trim();
+                }
+                const webp = await writeExifWebp(buffer, { packname: pack, author: stkAuthor });
+                await sock.sendMessage(m.from, { sticker: webp }, { quoted: m.raw });
+            } catch (err) { log.error('take', err); return m.reply('❌ Failed to update sticker.'); }
+            break;
+        }
+        case 'toimg': {
+            try {
+                const quoted = await getQuotedMessage(m);
+                const sticker = quoted?.message?.stickerMessage;
+                if (!sticker) return m.reply('❌ Reply to a sticker.');
+                await m.reply('⏳ Converting...');
+                const buffer = await downloadMediaMessage({ message: { stickerMessage: sticker }, key: quoted.key }, 'buffer', {});
+                const png = await convertStickerToImage(buffer);
+                await sock.sendMessage(m.from, { image: png, caption: '✅ Converted.' }, { quoted: m.raw });
+            } catch (err) { log.error('toimg', err); return m.reply('❌ Failed.'); }
+            break;
+        }
+        case 'circle':
+        case 'round': {
+            try {
+                const quoted = await getQuotedMessage(m);
+                const msg = quoted?.message || m.raw?.message;
+                if (!msg?.imageMessage && !msg?.stickerMessage) return m.reply('❌ Reply to an image or sticker.');
+                await m.reply('⏳ Creating circular sticker...');
+                const raw = await downloadMediaMessage({ message: msg, key: quoted?.key || m.key }, 'buffer', {});
+                const webp = await createCircularSticker(raw);
+                const final = await writeExifWebp(webp, { packname: 'SMILE PRIME MD', author: '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝚳𝚵 𝚳𝐃 么' });
+                await sock.sendMessage(m.from, { sticker: final }, { quoted: m.raw });
+            } catch (err) { log.error('circle', err); return m.reply('❌ Failed.'); }
+            break;
+        }
+        case 'ttp':
+        case 'attp': {
+            const t = args.join(' ').trim();
+            if (!t) return m.reply(`Usage: .${cmd} <text>`);
+            try {
+                await m.reply('⏳ Generating...');
+                const animated = cmd === 'attp';
+                const webp = await generateTextSticker(t, animated);
+                const final = await writeExifWebp(webp, { packname: 'SMILE PRIME MD', author: t });
+                await sock.sendMessage(m.from, { sticker: final }, { quoted: m.raw });
+            } catch (err) { log.error('ttp', err); return m.reply('❌ Failed.'); }
+            break;
+        }
+        case 'emojimix': {
+            const t = args.join(' ').trim();
+            if (!t) return m.reply('Usage: .emojimix 😀+😂');
+            try {
+                await m.reply('⏳ Mixing...');
+                const pair = parseEmojiPair(t);
+                if (!pair) return m.reply('❌ Provide at least 2 emojis.');
+                const { e1, e2 } = pair;
+                const dates = ['20201001','20210521','20210831','20211115','20220203','20220406','20220815','20220823','20221101','20230126','20230301','20230418'];
+                let buf = null;
+                for (const d of dates) {
+                    for (const u of [
+                        `https://www.gstatic.com/android/keyboard/emojikitchen/${d}/u${e1}/u${e1}_u${e2}.png`,
+                        `https://www.gstatic.com/android/keyboard/emojikitchen/${d}/u${e2}/u${e2}_u${e1}.png`,
+                    ]) {
+                        try {
+                            const r = await safeFetch(u, {}, 8000);
+                            if (r.ok) { buf = Buffer.from(await r.arrayBuffer()); break; }
+                        } catch {}
+                    }
+                    if (buf) break;
+                }
+                if (!buf) return m.reply('❌ Combination not supported.');
+                const webp = await writeExifWebp(await convertMediaToWebp(buf, false), { packname: 'SMILE PRIME MD', author: `${pair.emoji1}+${pair.emoji2}` });
+                await sock.sendMessage(m.from, { sticker: webp }, { quoted: m.raw });
+            } catch (err) { log.error('emojimix', err); return m.reply('❌ Failed.'); }
+            break;
+        }
+
+        // ───────────── TEXT TOOLS ─────────────
         case 'trt':
         case 'translate': {
             const text = args.join(' ').trim();
-            if (!text) return m.reply(`Usage: ${P}trt <text> (auto → English)\n${P}trt <lang> <text>  e.g. ${P}trt fr hello`);
+            if (!text) return m.reply(`Usage: ${P}trt <text>  or  ${P}trt fr hello`);
             let lang = 'en', q = text;
-            const m2 = text.match(/^([a-z]{2,3})\s+(.+)$/i);
-            if (m2) { lang = m2[1].toLowerCase(); q = m2[2]; }
+            const mt = text.match(/^([a-z]{2,3})\s+(.+)$/i);
+            if (mt) { lang = mt[1].toLowerCase(); q = mt[2]; }
             try {
                 await m.react('⏳');
-                try {
-                    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=autodetect|${encodeURIComponent(lang)}`;
-                    const res = await fetch(url);
-                    if (res.ok) {
-                        const json = await res.json();
-                        if (json.responseData?.translatedText) {
-                            return m.reply(`🌐 *Translation [${lang.toUpperCase()}]*\n\n${json.responseData.translatedText}`);
-                        }
+                const r = await safeFetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=autodetect|${encodeURIComponent(lang)}`);
+                if (r.ok) {
+                    const j = await r.json();
+                    if (j.responseData?.translatedText) {
+                        return m.reply(`🌐 *${lang.toUpperCase()}*\n\n${j.responseData.translatedText}`);
                     }
-                } catch {}
-
-                const data = await apiGet(`/tools/translate?text=${encodeURIComponent(q)}&to=${lang}`);
-                const out = data?.result?.translated || data?.result?.text || data?.result;
-                if (!out) return m.reply('Translation failed.');
-                return m.reply(`🌐 *${lang.toUpperCase()}*\n${out}`);
-            } catch (err) {
-                log.error('trt', err.message);
-                return m.reply('❌ Translation error.');
-            }
+                }
+                return m.reply('❌ Translation failed.');
+            } catch (err) { log.error('trt', err.message); return m.reply('❌ Translation error.'); }
         }
-
-        case 'tts': {
-            const text = args.join(' ').trim();
-            if (!text) return m.reply(`Usage: ${P}tts <text>`);
-            try {
-                const data = await apiGet(`/tools/tts?text=${encodeURIComponent(text)}`);
-                const url = data?.result?.url || data?.result;
-                if (!url) return m.reply('TTS failed.');
-                return m.send({ audio: { url }, mimetype: 'audio/mpeg', ptt: true });
-            } catch (err) {
-                log.error('tts', err.message);
-                return m.reply('❌ TTS error.');
-            }
-        }
-
         case 'lyrics': {
             const q = args.join(' ').trim();
             if (!q) return m.reply(`Usage: ${P}lyrics <song title>`);
@@ -1610,451 +1098,78 @@ async function handleCommand(m, { args, sock, session }) {
                 await m.react('⏳');
                 let artist = '', title = q;
                 if (q.includes('-')) {
-                    const parts = q.split('-');
-                    artist = parts[0].trim();
-                    title = parts.slice(1).join('-').trim();
+                    const p = q.split('-');
+                    artist = p[0].trim();
+                    title = p.slice(1).join('-').trim();
                 } else {
-                    const words = q.split(' ');
-                    if (words.length > 1) {
-                        artist = words[0];
-                        title = words.slice(1).join(' ');
-                    }
+                    const w = q.split(' ');
+                    if (w.length > 1) { artist = w[0]; title = w.slice(1).join(' '); }
                 }
                 if (artist && title) {
                     try {
-                        const lRes = await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
-                        if (lRes.ok) {
-                            const lJson = await lRes.json();
-                            if (lJson.lyrics) {
-                                const cap = `🎶 *${title}*\n👤 *${artist}*\n\n${lJson.lyrics.trim()}`;
+                        const r = await safeFetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
+                        if (r.ok) {
+                            const j = await r.json();
+                            if (j.lyrics) {
+                                const cap = `🎶 *${title}*\n👤 *${artist}*\n\n${j.lyrics.trim()}`;
                                 return m.reply(cap.length > 6000 ? cap.slice(0, 6000) + '\n…' : cap);
                             }
                         }
                     } catch {}
                 }
-
-                const data = await apiGet(`/search/lyrics?q=${encodeURIComponent(q)}`);
-                const r = data?.result;
-                if (!r) return m.reply('Lyrics not found.');
-                const cap = `🎶 *${r.title || q}*${r.artist ? `\n👤 ${r.artist}` : ''}\n\n${r.lyrics || r.text || ''}`;
-                return m.reply(cap.length > 6000 ? cap.slice(0, 6000) + '\n…' : cap);
-            } catch (err) {
-                log.error('lyrics', err.message);
-                return m.reply('❌ Could not fetch lyrics.');
-            }
+                return m.reply('❌ Lyrics not found.');
+            } catch (err) { log.error('lyrics', err.message); return m.reply('❌ Could not fetch lyrics.'); }
         }
-
         case 'weather': {
             const city = args.join(' ').trim();
             if (!city) return m.reply(`Usage: ${P}weather <city>`);
             try {
                 await m.react('⏳');
-                try {
-                    const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=%C+%t+(feels+like+%f)+humidity:+%h+wind:+%w`, {
-                        headers: { 'User-Agent': 'curl/8.0' }
-                    });
-                    if (res.ok) {
-                        const text = (await res.text()).trim();
-                        if (text && !text.includes('Unknown location')) {
-                            return m.reply(`🌤️ *Weather in ${city.toUpperCase()}*\n\n📍 ${text}\n\n么 *Provided by:* ${botName(settings, config)}`);
-                        }
+                const r = await safeFetch(`https://wttr.in/${encodeURIComponent(city)}?format=%C+%t+(feels+like+%f)+humidity:+%h+wind:+%w`, {
+                    headers: { 'User-Agent': 'curl/8.0' }
+                });
+                if (r.ok) {
+                    const text = (await r.text()).trim();
+                    if (text && !text.includes('Unknown location')) {
+                        return m.reply(`🌤️ *${city.toUpperCase()}*\n\n📍 ${text}`);
                     }
-                } catch {}
-
-                const data = await apiGet(`/tools/weather?q=${encodeURIComponent(city)}`);
-                const r = data?.result;
-                if (!r) return m.reply('City not found.');
-                return m.reply(`🌦️ *${r.location || city}*\n🌡️ ${r.temp ?? '-'}°C (feels ${r.feels ?? '-'}°C)\n☁️ ${r.desc || r.condition || '-'}\n💧 Humidity: ${r.humidity ?? '-'}%\n💨 Wind: ${r.wind ?? '-'}`);
-            } catch (err) {
-                log.error('weather', err.message);
-                return m.reply('❌ Weather lookup failed.');
-            }
+                }
+                return m.reply('❌ City not found.');
+            } catch (err) { log.error('weather', err.message); return m.reply('❌ Weather lookup failed.'); }
         }
-
-        case 'editname':
         case 'style':
         case 'fancy':
         case 'font': {
             const text = args.join(' ').trim();
-            if (!text) {
-                return m.reply(
-                    `╭━━━〔 🎨 *STYLISH TEXT* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  Convert any text to stylish\n` +
-                    `┃  Unicode fonts for group names,\n` +
-                    `┃  bios, or messages.\n` +
-                    `┃\n` +
-                    `┃  📝 *Usage:*\n` +
-                    `┃  \`${P}style <text>\`\n` +
-                    `┃\n` +
-                    `┃  📌 *Example:*\n` +
-                    `┃  \`${P}style SMILE PRIME MD\`\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-            if (text.length > 60) return m.reply('❌ Text too long (max 60 chars).');
-
-            const brandFont = (t) => {
-                const map = {
-                    a:'𝚨', b:'𝚩', c:'𝐂', d:'𝚫', e:'𝚬', f:'𝚭', g:'𝚮', h:'𝚯', i:'𝚰',
-                    j:'𝚱', k:'𝚲', l:'𝚳', m:'𝚴', n:'𝚵', o:'𝚶', p:'𝚷', q:'𝚸', r:'𝚹',
-                    s:'𝚺', t:'𝚻', u:'𝚼', v:'𝚽', w:'𝚾', x:'𝚿', y:'𝛀', z:'𝛁',
-                    A:'𝚨', B:'𝚩', C:'𝐂', D:'𝚫', E:'𝚬', F:'𝚭', G:'𝚮', H:'𝚯', I:'𝚰',
-                    J:'𝚱', K:'𝚲', L:'𝚳', M:'𝚴', N:'𝚵', O:'𝚶', P:'𝚷', Q:'𝚸', R:'𝚹',
-                    S:'𝚺', T:'𝚻', U:'𝚼', V:'𝚽', W:'𝚾', X:'𝚿', Y:'𝛀', Z:'𝛁'
-                };
-                return t.split('').map(c => map[c] || c).join('');
-            };
-
+            if (!text) return m.reply(`Usage: ${P}style <text>`);
+            if (text.length > 60) return m.reply('❌ Max 60 chars.');
             const fonts = {
-                '𝗕𝗼𝗹𝗱': {
-                    upper: '𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭',
-                    lower: '𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇',
-                    num: '𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵'
-                },
-                '𝘐𝘵𝘢𝘭𝘪𝘤': {
-                    upper: '𝘈𝘉𝘊𝘋𝘌𝘍𝘎𝘏𝘐𝘑𝘒𝘓𝘔𝘕𝘖𝘗𝘘𝘙𝘚𝘛𝘜𝘝𝘞𝘟𝘠𝘡',
-                    lower: '𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻',
-                    num: '1234567890'
-                },
-                '𝓢𝓬𝓻𝓲𝓹𝓽': {
-                    upper: '𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦ℒℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵',
-                    lower: '𝒶𝒷𝒸𝒹ℯ𝒻ℊ𝒽𝒾𝒿𝓀𝓁𝓂𝓃ℴ𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏',
-                    num: '𝟢𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫'
-                },
-                '𝔊𝔬𝔱𝔥𝔦𝔠': {
-                    upper: '𝔄𝔅ℭ𝔇𝔈𝔉𝔊ℌℑ𝔍𝔎𝔏𝔐𝔑𝔒𝔓𝔔ℜ𝔖𝔗𝔘𝔙𝔚𝔛𝔜ℨ',
-                    lower: '𝔞𝔟𝔠𝔡𝔢𝔣𝔤𝔥𝔦𝔧𝔨𝔩𝔪𝔫𝔬𝔭𝔮𝔯𝔰𝔱𝔲𝔳𝔴𝔵𝔶𝔷',
-                    num: '0123456789'
-                },
-                '𝕯𝖔𝖚𝖇𝖑𝖊': {
-                    upper: '𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ',
-                    lower: '𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫',
-                    num: '𝟘𝟙𝟚𝟛𝟜𝟝𝟞𝟟𝟠𝟡'
-                },
-                'ꜱᴍᴀʟʟᴄᴀᴘꜱ': {
-                    upper: 'ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘQʀꜱᴛᴜᴠᴡxʏᴢ',
-                    lower: 'ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘQʀꜱᴛᴜᴠᴡxʏᴢ',
-                    num: '0123456789'
-                },
-                'Ⓞⓤⓣⓛⓘⓝⓔ': {
-                    upper: 'ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ',
-                    lower: 'ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ',
-                    num: '⓪①②③④⑤⑥⑦⑧⑨'
-                }
+                '𝗕𝗼𝗹𝗱': { upper: '𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭', lower: '𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇', num: '𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵' },
+                '𝘐𝘵𝘢𝘭𝘪𝘤': { upper: '𝘈𝘉𝘊𝘋𝘌𝘍𝘎𝘏𝘐𝘑𝘒𝘓𝘔𝘕𝘖𝘗𝘘𝘙𝘚𝘛𝘜𝘝𝘞𝘟𝘠𝘡', lower: '𝘢𝘣𝘤𝘥𝘦𝘧𝘨𝘩𝘪𝘫𝘬𝘭𝘮𝘯𝘰𝘱𝘲𝘳𝘴𝘵𝘶𝘷𝘸𝘹𝘺𝘻', num: '1234567890' },
+                '𝓢𝓬𝓻𝓲𝓹𝓽': { upper: '𝒜ℬ𝒞𝒟ℰℱ𝒢ℋℐ𝒥𝒦ℒℳ𝒩𝒪𝒫𝒬ℛ𝒮𝒯𝒰𝒱𝒲𝒳𝒴𝒵', lower: '𝒶𝒷𝒸𝒹ℯ𝒻ℊ𝒽𝒾𝒿𝓀𝓁𝓂𝓃ℴ𝓅𝓆𝓇𝓈𝓉𝓊𝓋𝓌𝓍𝓎𝓏', num: '𝟢𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫' },
+                '𝔊𝔬𝔱𝔥𝔦𝔠': { upper: '𝔄𝔅ℭ𝔇𝔈𝔉𝔊ℌℑ𝔍𝔎𝔏𝔐𝔑𝔒𝔓𝔔ℜ𝔖𝔗𝔘𝔙𝔚𝔛𝔜ℨ', lower: '𝔞𝔟𝔠𝔡𝔢𝔣𝔤𝔥𝔦𝔧𝔨𝔩𝔪𝔫𝔬𝔭𝔮𝔯𝔰𝔱𝔲𝔳𝔴𝔵𝔶𝔷', num: '0123456789' },
+                '𝕯𝖔𝖚𝖇𝖑𝖊': { upper: '𝔸𝔹ℂ𝔻𝔼𝔽𝔾ℍ𝕀𝕁𝕂𝕃𝕄ℕ𝕆ℙℚℝ𝕊𝕋𝕌𝕍𝕎𝕏𝕐ℤ', lower: '𝕒𝕓𝕔𝕕𝕖𝕗𝕘𝕙𝕚𝕛𝕜𝕝𝕞𝕟𝕠𝕡𝕢𝕣𝕤𝕥𝕦𝕧𝕨𝕩𝕪𝕫', num: '𝟘𝟙𝟚𝟛𝟜𝟝𝟞𝟟𝟠𝟡' },
+                'Ⓞⓤⓣⓛⓘⓝⓔ': { upper: 'ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏ', lower: 'ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩ', num: '⓪①②③④⑤⑥⑦⑧⑨' }
             };
-
-            const results = [];
-            results.push(`┃ 么 𝚳𝚯𝐃𝐙      › 么 ${brandFont(text)} 么`);
-
+            const lines = [`Original › ${text}`, ''];
             for (const [name, map] of Object.entries(fonts)) {
                 const converted = text.split('').map(ch => {
-                    const u = map.upper.indexOf(ch);
-                    if (u !== -1) return map.upper[u];
-                    const l = map.lower.indexOf(ch);
-                    if (l !== -1) return map.lower[l];
-                    const n = map.num.indexOf(ch);
-                    if (n !== -1) return map.num[n];
+                    let i = map.upper.indexOf(ch); if (i !== -1) return map.upper[i];
+                    i = map.lower.indexOf(ch); if (i !== -1) return map.lower[i];
+                    i = map.num.indexOf(ch); if (i !== -1) return map.num[i];
                     return ch;
                 }).join('');
-                results.push(`┃ ${name.padEnd(12)} › ${converted}`);
+                lines.push(`${name} › ${converted}`);
             }
-
-            return m.reply(
-                `╭━━━〔 🎨 *STYLISH TEXT* 〕━━━╮\n` +
-                `┃\n` +
-                `┃  Original › ${text}\n` +
-                `┃\n` +
-                `┣━━━━━━━━━━━━━━━━━━━━━━━┫\n` +
-                results.join('\n') +
-                `\n┃\n` +
-                `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                `_Copy any style by long-pressing it._\n\n` +
-                `么 *SMILE PRIME MD* 么`
-            );
+            return m.reply(`🎨 *Stylish*\n\n${lines.join('\n')}`);
         }
 
-        // ───────────────────────── utility ─────────────────────────
-        case 'runtime':
-        case 'uptime': {
-            const s = process.uptime();
-            return m.reply(`⏱️ Uptime: ${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ${Math.floor(s % 60)}s`);
-        }
-
-        case 'stats': {
-            const mem = process.memoryUsage();
-            const mb = (n) => (n / 1024 / 1024).toFixed(1) + ' MB';
-            return m.reply(
-                `📊 *${botName(settings, config)} stats*\n` +
-                `• Uptime: ${Math.floor(process.uptime() / 60)} min\n` +
-                `• RSS: ${mb(mem.rss)}\n• Heap: ${mb(mem.heapUsed)} / ${mb(mem.heapTotal)}\n` +
-                `• Node: ${process.version}\n• Platform: ${process.platform}`
-            );
-        }
-
-        case 'calc': {
-            const expr = args.join(' ').trim();
-            if (!expr) return m.reply(`Usage: ${P}calc <expression>`);
-            if (!/^[\d\s+\-*/().%]+$/.test(expr)) return m.reply('❌ Only numbers and + - * / ( ) % allowed.');
-            try {
-                const val = Function(`"use strict";return (${expr})`)();
-                return m.reply(`🧮 ${expr} = *${val}*`);
-            } catch {
-                return m.reply('❌ Invalid expression.');
-            }
-        }
-
-        case 'math':
-        case 'solve': {
-            const expr = args.join(' ').trim();
-            if (!expr) {
-                return m.reply(
-                    `╭━━━〔 🧮 *MATH SOLVER* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  Solve equations with steps.\n` +
-                    `┃\n` +
-                    `┃  📝 *Usage:*\n` +
-                    `┃  \`${P}math <equation>\`\n` +
-                    `┃\n` +
-                    `┃  📌 *Examples:*\n` +
-                    `┃  \`${P}math 2x+5=15\`\n` +
-                    `┃  \`${P}math integrate x^2 dx\`\n` +
-                    `┃  \`${P}math factor x^2-4\`\n` +
-                    `┃  \`${P}math simplify 3x+2x\`\n` +
-                    `┃  \`${P}math derive sin(x)\`\n` +
-                    `┃  \`${P}math 12*8\`\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-
-            if (/^[\d\s+\-*/().%^]+$/.test(expr)) {
-                try {
-                    const safe = expr.replace(/\^/g, '**');
-                    const val = Function(`"use strict";return (${safe})`)();
-                    return m.reply(
-                        `╭━━━〔 🧮 *RESULT* 〕━━━╮\n` +
-                        `┃\n` +
-                        `┃  📥 Input  : \`${expr}\`\n` +
-                        `┃  📤 Answer : *${val}*\n` +
-                        `┃\n` +
-                        `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                        `么 *SMILE PRIME MD* 么`
-                    );
-                } catch {
-                    return m.reply('❌ Invalid expression.');
-                }
-            }
-
-            await m.react('🧮');
-            try {
-                let op = 'simplify';
-                let query = expr;
-
-                if (/^integrate\s+/i.test(expr))      { op = 'integrate'; query = expr.replace(/^integrate\s+/i, ''); }
-                else if (/^derive\s+/i.test(expr))    { op = 'derive';    query = expr.replace(/^derive\s+/i, ''); }
-                else if (/^factor\s+/i.test(expr))    { op = 'factor';    query = expr.replace(/^factor\s+/i, ''); }
-                else if (/^simplify\s+/i.test(expr))  { op = 'simplify';  query = expr.replace(/^simplify\s+/i, ''); }
-                else if (/^zeroes?\s+/i.test(expr))   { op = 'zeroes';    query = expr.replace(/^zeroes?\s+/i, ''); }
-                else if (/^area\s+/i.test(expr))      { op = 'area';      query = expr.replace(/^area\s+/i, ''); }
-                else if (/^cos\s+/i.test(expr))       { op = 'cos';       query = expr.replace(/^cos\s+/i, ''); }
-                else if (/^sin\s+/i.test(expr))       { op = 'sin';       query = expr.replace(/^sin\s+/i, ''); }
-                else if (/^tan\s+/i.test(expr))       { op = 'tan';       query = expr.replace(/^tan\s+/i, ''); }
-                else if (expr.includes('='))          { op = 'simplify'; }
-                else if (/[a-z]/i.test(expr))         { op = 'simplify'; }
-
-                const res = await fetch(`https://newton.now.sh/api/v2/${op}/${encodeURIComponent(query)}`);
-                if (!res.ok) return m.reply('❌ Could not solve that expression.');
-                const json = await res.json();
-
-                return m.reply(
-                    `╭━━━〔 🧮 *MATH SOLVER* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  🔍 Operation : ${op}\n` +
-                    `┃  📥 Input     : \`${query}\`\n` +
-                    `┃  📤 Answer    : *${json.result}*\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            } catch (err) {
-                log.error('math', err.message);
-                return m.reply(`❌ Math solve failed: ${err.message}`);
-            }
-        }
-
-        case 'password': {
-            const len = Math.min(Math.max(parseInt(args[0], 10) || 16, 6), 64);
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=';
-            let out = '';
-            const crypto = require('crypto');
-            for (let i = 0; i < len; i++) out += chars[crypto.randomInt(0, chars.length)];
-            return m.reply(`🔐 Password (${len}):\n\`${out}\``);
-        }
-
-        case 'qr': {
-            const text = args.join(' ').trim();
-            if (!text) return m.reply(`Usage: ${P}qr <text or url>`);
-            const url = `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encodeURIComponent(text)}`;
-            return m.send({ image: { url }, caption: '🔳 QR Code' });
-        }
-
-        // ───────────────────────── owner ─────────────────────────
+        // ───────────── DEVELOPER ─────────────
         case 'restart': {
             if (!owner) return m.reply('⛔ Owner only.');
             await m.reply('♻️ Restarting...');
             process.exit(0);
         }
-
-        case 'update': {
-            if (!owner) return m.reply('⛔ Owner only.');
-            return m.reply(
-                'ℹ️ *SMILE MODZ UPDATE SYSTEM*\n\n' +
-                'Publish the new bot version through your hosting deployment, then users can open the updates website and tap *UPDATE MY BOT*.\n\n' +
-                'This command no longer pulls shared source code or restarts every paired number.'
-            );
-        }
-
-        case 'getcase':
-        case 'showsource':
-        case 'src': {
-            if (!owner) return m.reply('⛔ Owner only.');
-
-            const name = (args[0] || '').toLowerCase().trim();
-            if (!name) {
-                return m.reply(
-                    `╭━━━〔 📖 *GETCASE* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  View source code of any\n` +
-                    `┃  command directly here.\n` +
-                    `┃\n` +
-                    `┃  📝 *Usage:*\n` +
-                    `┃  \`${P}getcase <command>\`\n` +
-                    `┃\n` +
-                    `┃  📌 *Example:*\n` +
-                    `┃  \`${P}getcase sticker\`\n` +
-                    `┃  \`${P}getcase antidelete\`\n` +
-                    `┃  \`${P}getcase update\`\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-
-            const candidates = [
-                path.join(process.cwd(), 'Anix.js'),
-                path.join(process.cwd(), 'anix.js'),
-                path.join(process.cwd(), 'index.js'),
-                path.join(process.cwd(), 'src', 'Anix.js'),
-                path.join(process.cwd(), 'src', 'anix.js'),
-                path.join(process.cwd(), 'src', 'index.js'),
-            ];
-
-            let sourceContent = null;
-            for (const f of candidates) {
-                if (fs.existsSync(f)) {
-                    const c = fs.readFileSync(f, 'utf8');
-                    if (c.includes(`case '${name}'`) || c.includes(`case "${name}"`)) {
-                        sourceContent = c;
-                        break;
-                    }
-                }
-            }
-
-            if (!sourceContent) {
-                return m.reply(
-                    `╭━━━〔 ❌ *NOT FOUND* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  No command named\n` +
-                    `┃  \`${name}\` exists.\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-
-            const lines = sourceContent.split('\n');
-            let startLine = -1;
-            for (let i = 0; i < lines.length; i++) {
-                const l = lines[i];
-                if (l.includes(`case '${name}':`) || l.includes(`case "${name}":`)) {
-                    startLine = i;
-                    break;
-                }
-            }
-
-            if (startLine === -1) {
-                return m.reply(
-                    `╭━━━〔 ❌ *NOT FOUND* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  No command named\n` +
-                    `┃  \`${name}\` exists.\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-
-            let chainStart = startLine;
-            while (chainStart > 0) {
-                const prev = lines[chainStart - 1].trim();
-                if (prev.startsWith(`case '`) || prev.startsWith(`case "`)) {
-                    chainStart--;
-                } else {
-                    break;
-                }
-            }
-
-            let braceCount = 0;
-            let opened = false;
-            let endLine = -1;
-
-            for (let i = chainStart; i < lines.length; i++) {
-                const l = lines[i];
-                for (const ch of l) {
-                    if (ch === '{') { braceCount++; opened = true; }
-                    else if (ch === '}') { braceCount--; }
-                }
-                if (opened && braceCount === 0) { endLine = i; break; }
-                if (!opened && i > chainStart && /^\s*case\s+['"]/.test(l)) {
-                    endLine = i - 1;
-                    break;
-                }
-                if (i - chainStart > 800) { endLine = i; break; }
-            }
-
-            if (endLine === -1) endLine = Math.min(chainStart + 200, lines.length - 1);
-
-            const snippet = lines.slice(chainStart, endLine + 1).join('\n');
-            const maxInline = 3500;
-
-            if (snippet.length <= maxInline) {
-                return m.reply(
-                    `╭━━━〔 📖 *${name.toUpperCase()}* 〕━━━╮\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `\`\`\`javascript\n${snippet}\n\`\`\`\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-
-            return m.send({
-                document: Buffer.from(snippet, 'utf8'),
-                fileName: `${name}.txt`,
-                mimetype: 'text/plain',
-                caption:
-                    `╭━━━〔 📖 *${name.toUpperCase()}* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  📏 ${endLine - chainStart + 1} lines\n` +
-                    `┃  🧾 ${(snippet.length / 1024).toFixed(1)} KB\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-            });
-        }
-
         case 'broadcast': {
             if (!owner) return m.reply('⛔ Owner only.');
             const text = args.join(' ').trim();
@@ -2065,853 +1180,159 @@ async function handleCommand(m, { args, sock, session }) {
                 for (const jid of Object.keys(groups)) {
                     try { await sock.sendMessage(jid, { text }); n++; } catch {}
                 }
-                return m.reply(`📢 Broadcast sent to ${n} group(s).`);
-            } catch (err) {
-                log.error('broadcast', err.message);
-                return m.reply('❌ Broadcast failed.');
-            }
+                return m.reply(`📢 Sent to ${n} group(s).`);
+            } catch (err) { log.error('broadcast', err.message); return m.reply('❌ Broadcast failed.'); }
         }
-
         case 'report': {
             if (!owners.length) return m.reply('No owner configured.');
             const text = args.join(' ').trim();
             if (!text) return m.reply(`Usage: ${P}report <message>`);
             const to = owners[0];
-            const senderJid = m.senderAlt || m.sender;
-            const senderNumber = jidToNumber(senderJid);
+            const senderNumber = jidToNumber(m.senderAlt || m.sender);
             try {
                 await sock.sendMessage(to, {
-                    text: `📩 *NEW BOT REPORT*
-
-👤 *Sender:* ${senderNumber}
-📱 *WhatsApp:* https://wa.me/${senderNumber}
-
-━━━━━━━━━━━━━━
-📝 *Message:*
-${text}
-━━━━━━━━━━━━━━`
+                    text: `📩 *BOT REPORT*\n\n👤 Sender: ${senderNumber}\n📱 https://wa.me/${senderNumber}\n\n━━━━━━━\n${text}\n━━━━━━━`
                 });
-                return m.reply('✅ Report sent to the owner.');
-            } catch (err) {
-                console.error('Report error:', err);
-                return m.reply('❌ Could not send the report.');
-            }
+                return m.reply('✅ Report sent.');
+            } catch (err) { return m.reply('❌ Could not send.'); }
         }
-
         case 'donate': {
             return m.reply(`
-╭━━〔 ☕ DONATE & SUPPORT 〕━━╮
+╭━━〔 ☕ DONATE 〕━━╮
 ┃
-┃  ✨ *SUPPORT ${botName(settings, config)}*
+┃  ✨ Support SMILE PRIME MD
 ┃
-┃  Your support keeps this project
-┃  growing and improving every day.
+┃  💎 +254107065646
+┃  📢 ${CHANNEL.link}
 ┃
-┃  💎 *DONATION CONTACT*
-┃  📞 +254107065646
+┃  ❤️ Thank you!
 ┃
-┃  📢 *JOIN OUR WHATSAPP CHANNEL*
-┃  🔗 ${CHANNEL.link}
-┃
-┃  ❤️ Thank you for your support!
-┃
-╰━━━━━━━━━━━━━━━━━━━━╯
-
-_© ${botName(settings, config)}_
-`.trim());
+╰━━━━━━━━━━━━━━━━╯`.trim());
         }
-
-        case 'enc':
-        case 'encrypt': {
-            const JsConfuser = require('js-confuser');
-            const quoted = await getQuotedMessage(m);
-            const docMsg = quoted?.message?.documentMessage
-                || quoted?.message?.documentWithCaptionMessage?.message?.documentMessage;
-            if (!docMsg) {
-                return m.reply('❌ Reply to a JavaScript (.js) file.');
-            }
-            const fileName = docMsg.fileName || '';
-            if (!fileName.toLowerCase().endsWith('.js')) {
-                return m.reply('❌ Only .js files are supported.');
-            }
+        case 'idch': {
+            const arg = args.join(' ').trim();
+            const code = arg.match(/channel\/([A-Za-z0-9_-]+)/)?.[1];
+            const direct = arg.match(/\b\d{10,}@newsletter\b/)?.[0];
+            if (!code && !direct) return m.reply(`Usage: ${P}idch <channel link>`);
             try {
-                await sock.sendMessage(m.from, { react: { text: '⏳', key: m.key } });
-                const docBuffer = await downloadMediaMessage({ message: { documentMessage: docMsg }, key: quoted.key }, 'buffer', {});
-                if (!docBuffer) {
-                    return m.reply('❌ Failed to download the file.');
-                }
-                const result = await JsConfuser.obfuscate(
-                    docBuffer.toString('utf-8'),
-                    {
-                        target: 'node',
-                        preset: 'high',
-                        compact: true,
-                        minify: true,
-                        flatten: true,
-                        identifierGenerator: function () {
-                            const originalString = 'SMILEPRIME';
-                            const randomString = (length) => {
-                                let result = '';
-                                const characters =
-                                    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-                                for (let i = 0; i < length; i++) {
-                                    result += characters.charAt(
-                                        Math.floor(Math.random() * characters.length)
-                                    );
-                                }
-                                return result;
-                            };
-                            return originalString + randomString(2);
-                        },
-                        renameVariables: true,
-                        renameGlobals: false,
-                        stringEncoding: true,
-                        stringSplitting: 0.0,
-                        stringConcealing: true,
-                        stringCompression: true,
-                        duplicateLiteralsRemoval: 1.0,
-                        controlFlowFlattening: 1.0,
-                        opaquePredicates: 0.9,
-                        deadCode: 0.0,
-                        dispatcher: true,
-                        calculator: true,
-                        hexadecimalNumbers: true,
-                        movedDeclarations: true,
-                        objectExtraction: true,
-                        globalConcealing: true
-                    }
-                );
-                const output = result.code || result;
-                await sock.sendMessage(m.from, {
-                    document: Buffer.from(output, 'utf-8'),
-                    mimetype: 'application/javascript',
-                    fileName: `SMILE-PRIME-${fileName}`,
-                    caption: `
-╭━━〔 么 SMILE PRIME MD 么 〕━━╮
-┃
-┃  🔐 ENCRYPTION SUCCESSFUL
-┃
-┃  📁 File: ${fileName}
-┃  🛡️ Protection: HIGH
-┃
-┃  👨‍💻 DEVELOPER
-┃  么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃么
-┃
-╰━━━━━━━━━━━━━━━━━━╯
-            `.trim()
-                }, { quoted: m.raw });
-                await sock.sendMessage(m.from, { react: { text: '✅', key: m.key } });
-            } catch (err) {
-                console.error('SMILE PRIME ENCRYPT ERROR:', err);
-                return m.reply(`❌ Encryption failed: ${err.message}`);
-            }
-            break;
+                const meta = direct ? await sock.newsletterMetadata('jid', direct) : await sock.newsletterMetadata('invite', code);
+                const jid = meta?.id || direct;
+                if (!jid) return m.reply('❌ Channel not found.');
+                const name = meta?.name || meta?.thread_metadata?.name?.text || 'Channel';
+                const subs = meta?.subscribers ?? meta?.thread_metadata?.subscribers_count;
+                return sendCopy(m, { title: 'Channel ID', text: `📣 *${name}*${subs ? `\n👥 ${Number(subs).toLocaleString('en-US')} followers` : ''}\n🆔 ${jid}`, value: jid, label: 'Copy ID' });
+            } catch (err) { return m.reply(`❌ ${err.message}`); }
         }
-
-        // ───────────────────────── protection ─────────────────────────
-        case 'antilink': {
-            if (!(await requireGroup(m))) return;
-            const admin = owner || (await isGroupAdmin(sock, m.from, senderNums(m)));
-            if (!admin) return m.reply('⛔ Group admins only.');
-            const sub = (args[0] || '').toLowerCase();
-            const cfg = antilinkCfg(settings, m.from);
-            const explain = { del: 'links are deleted', warn: `links are deleted + warning (kick at ${cfg.limit})`, kick: 'links are deleted and the sender is removed' };
-
-            if (['del', 'delete', 'warn', 'kick'].includes(sub)) {
-                const mode = sub === 'delete' ? 'del' : sub;
-                const next = setAntilinkCfg(settings, m.from, { mode });
-                return m.reply(`✅ Antilink *${mode.toUpperCase()}*: ${explain[mode].replace(String(cfg.limit), String(next.limit))}.\n(group admins are never touched — I must be admin)`);
-            }
-            if (sub === 'off') {
-                setAntilinkCfg(settings, m.from, { mode: 'off' });
-                return m.reply('✅ Antilink is *OFF* in this group.');
-            }
-            if (sub === 'setwarn') {
-                const n = parseInt(args[1], 10);
-                if (!(n >= 1 && n <= 10)) return m.reply(`Usage: ${P}antilink setwarn <1-10>`);
-                setAntilinkCfg(settings, m.from, { limit: n });
-                return m.reply(`✅ Warn limit set to *${n}* — the ${n}${['st', 'nd', 'rd'][n - 1] || 'th'} link gets the sender removed (in warn mode).`);
-            }
-            if (sub === 'resetwarn') {
-                const target = resolveTarget(m, args.slice(1));
-                const warns = getWarns(settings, m.from);
-                if (target) {
-                    const key = Object.keys(warns).find((k) => senderNumsOf(target).includes(k));
-                    if (key) delete warns[key];
-                    setWarns(settings, m.from, warns);
-                    return m.reply(`✅ Warnings reset for @${numOf(target)}.`, { mentions: [target] });
-                }
-                setWarns(settings, m.from, {});
-                return m.reply('✅ All antilink warnings in this group were reset.');
-            }
-            const warned = Object.keys(getWarns(settings, m.from)).length;
-            const iAmAdmin = await botIsAdmin(sock, m.from);
+        case 'health': {
+            const mem = process.memoryUsage();
+            return m.reply(`💚 *Health*\n• Uptime: ${Math.floor(process.uptime() / 60)}m\n• RSS: ${(mem.rss / 1024 / 1024).toFixed(1)} MB\n• Node: ${process.version}`);
+        }
+        case 'changelog': {
             return m.reply(
-                `*Antilink*  ·  now: *${cfg.mode.toUpperCase()}*  ·  warn limit: *${cfg.limit}*  ·  warned members: ${warned}\nI am admin here: ${iAmAdmin ? '✅ yes' : '❌ NO - make me admin or I cannot delete links'}\nGroup admins, the owner and sudo users are never touched.\n\n` +
-                    `${P}antilink del — delete links\n${P}antilink warn — delete + warn, kick at the limit\n${P}antilink kick — delete + remove sender\n` +
-                    `${P}antilink setwarn <n> — warnings before kick\n${P}antilink resetwarn [@user] — clear warnings\n${P}antilink off`
+                `📋 *Changelog*\n\n• Rebranded to SMILE PRIME MD\n• Menu numbered-reply flow now actually works\n• Removed broken commands (play, upscale, toanime, spotify, etc.)\n• Fixed warn-reason parsing\n• Fixed kickall crash when sock.user was undefined\n• Added fetch timeouts across all network calls`
             );
         }
-
-        case 'anticall': {
+        case 'setbotname': {
             if (!owner) return m.reply('⛔ Owner only.');
-            const a = (args[0] || '').toLowerCase();
-            if (!['hang', 'block', 'off'].includes(a)) return m.reply(`*Anti-call*: ${settings.get('antiCall', 'off').toUpperCase()}\n\n${P}anticall hang — reject every call\n${P}anticall block — reject and block the caller\n${P}anticall off`);
-            settings.set('antiCall', a);
-            return m.reply(a === 'off' ? '✅ Anti-call *OFF*.' : `✅ Anti-call *${a.toUpperCase()}* — ${a === 'hang' ? 'calls are rejected' : 'callers are rejected and blocked'} (owner and sudo are never affected).`);
+            const name = args.join(' ').trim().slice(0, 40);
+            if (!name) return m.reply(`Usage: ${P}setbotname <name>`);
+            if (/^(reset|default)$/i.test(name)) {
+                settings.set('botName', '');
+                return m.reply(`✅ Bot name reset.`);
+            }
+            settings.set('botName', name);
+            return m.reply(`✅ Bot name: *${name}*.`);
         }
-
-        case 'antidelete':
-        case 'antidel': {
+        case 'getcase':
+        case 'showsource':
+        case 'src': {
             if (!owner) return m.reply('⛔ Owner only.');
-
-            const action  = (args[0] || '').toLowerCase();
-            const modeArg = (args[1] || '').toLowerCase();
-            const current = settings.get('antidelete', { enabled: false, mode: 'chat' });
-            const modeLabel = (x) => (x === 'dm' ? 'Owner DM' : 'Same Chat');
-            const onOff = (v) => (v ? '✅ ON' : '❌ OFF');
-
-            if (!action || action === 'status') {
-                return m.reply(
-                    `╭━━━〔 🛡️ *ANTI-DELETE* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  📌 Status : ${onOff(current.enabled)}\n` +
-                    `┃  🎯 Mode   : *${modeLabel(current.mode)}*\n` +
-                    `┃  🌍 Scope  : Groups + Private DMs\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `╭━━━〔 📖 *COMMANDS* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete on\n` +
-                    `┃      → turn ON (keeps mode)\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete off\n` +
-                    `┃      → turn OFF\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete on chat\n` +
-                    `┃      → ON · restore in original chat\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete on dm\n` +
-                    `┃      → ON · forward to owner DM\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete mode chat\n` +
-                    `┃      → switch to same-chat restore\n` +
-                    `┃\n` +
-                    `┃  ◈ ${P}antidelete mode dm\n` +
-                    `┃      → switch to owner-DM forward\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-
-            if (action === 'on' || action === 'off') {
-                const enabled = action === 'on';
-                let mode = current.mode || 'chat';
-                if (enabled && (modeArg === 'chat' || modeArg === 'dm')) mode = modeArg;
-
-                settings.set('antidelete', { enabled, mode });
-
-                if (!enabled) {
-                    return m.reply(
-                        `╭━━━〔 ❌ *DEACTIVATED* 〕━━━╮\n` +
-                        `┃\n` +
-                        `┃  Anti-delete is now *OFF*.\n` +
-                        `┃  Deleted messages will not\n` +
-                        `┃  be recovered anywhere.\n` +
-                        `┃\n` +
-                        `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                        `么 *SMILE PRIME MD* 么`
-                    );
-                }
-
-                return m.reply(
-                    `╭━━━〔 ✅ *ACTIVATED* 〕━━━╮\n` +
-                    `┃\n` +
-                    `┃  🎯 Mode  : *${modeLabel(mode)}*\n` +
-                    `┃  🌍 Scope : Groups + Private DMs\n` +
-                    `┃\n` +
-                    `╰━━━━━━━━━━━━━━━━━━━╯\n\n` +
-                    `${mode === 'dm'
-                        ? '📩 Deleted messages will be *forwarded to the owner DM* from any chat.'
-                        : '💬 Deleted messages will be *restored in their original chat* (groups or DMs).'}\n\n` +
-                    `么 *SMILE PRIME MD* 么`
-                );
-            }
-
-            if (action === 'mode' || action === 'chat' || action === 'dm') {
-                const mode = action === 'mode' ? modeArg : action;
-
-                if (mode !== 'chat' && mode !== 'dm') {
-                    return m.reply(
-                        `❌ *Invalid mode*\n\n` +
-                        `Use:\n` +
-                        `• \`${P}antidelete mode chat\`\n` +
-                        `• \`${P}antidelete mode dm\``
-                    );
-                }
-
-                settings.set('antidelete', { enabled: current.enabled, mode });
-
-                return m.reply(
-                    `✅ Anti-delete mode → *${modeLabel(mode)}*\n` +
-                    `Status: ${onOff(current.enabled)}\n\n` +
-                    `_Applies to groups and DMs._`
-                );
-            }
-
-            return m.reply(
-                `❌ *Unknown option* \`${action}\`\n\n` +
-                `Use \`${P}antidelete\` to see available commands.`
-            );
-        }
-
-        // ─────────────────────────
-        // STICKER & METADATA TOOLS
-        // ─────────────────────────
-        case 'sticker':
-        case 'stiker':
-        case 's': {
-            try {
-                const quoted = await getQuotedMessage(m);
-                const msg = quoted?.message || m.raw?.message;
-                if (!msg) {
-                    return m.reply('📸 Reply to an image or short video with .s [packname|author]');
-                }
-                const isImg = !!msg.imageMessage;
-                const isVid = !!msg.videoMessage;
-                const isStk = !!msg.stickerMessage;
-                if (!isImg && !isVid && !isStk) {
-                    return m.reply('❌ Reply to an image, video or sticker.');
-                }
-                if (isVid && Number(msg.videoMessage.seconds || 0) > 10) {
-                    return m.reply('❌ Video must be 10 seconds or shorter.');
-                }
-
-                await m.reply('⏳ Creating sticker...');
-                const rawBuffer = await downloadMediaMessage(
-                    { message: msg, key: quoted?.key || m.key },
-                    'buffer',
-                    {}
-                );
-
-                const metaRaw = args.join(' ').trim();
-                let pack = 'SMILE PRIME MD';
-                let stkAuthor = '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么';
-                if (metaRaw) {
-                    const parts = metaRaw.includes('|') ? metaRaw.split('|') : metaRaw.split(',');
-                    if (parts[0]) pack = parts[0].trim();
-                    if (parts[1]) stkAuthor = parts[1].trim();
-                }
-
-                let webpBuf;
-                if (isStk) {
-                    webpBuf = await writeExifWebp(rawBuffer, { packname: pack, author: stkAuthor });
-                } else {
-                    const converted = await convertMediaToWebp(rawBuffer, isVid);
-                    webpBuf = await writeExifWebp(converted, { packname: pack, author: stkAuthor });
-                }
-
-                await sock.sendMessage(m.from, { sticker: webpBuf }, { quoted: m.raw });
-            } catch (err) {
-                log.error('sticker', err.message);
-                return m.reply('❌ Failed to create sticker: ' + (err.message || 'unknown error'));
-            }
-            break;
-        }
-
-        case 'take':
-        case 'steal':
-        case 'wm': {
-            try {
-                const quoted = await getQuotedMessage(m);
-                const sticker = quoted?.message?.stickerMessage;
-                if (!sticker) {
-                    return m.reply('❌ Reply to a sticker with .take [packname|author]');
-                }
-                await m.reply('⏳ Updating sticker metadata...');
-                const buffer = await downloadMediaMessage(
-                    { message: { stickerMessage: sticker }, key: quoted.key },
-                    'buffer',
-                    {}
-                );
-
-                const metaRaw = args.join(' ').trim();
-                let pack = 'SMILE PRIME MD';
-                let stkAuthor = '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么';
-                if (metaRaw) {
-                    const parts = metaRaw.includes('|') ? metaRaw.split('|') : metaRaw.split(',');
-                    if (parts[0]) pack = parts[0].trim();
-                    if (parts[1]) stkAuthor = parts[1].trim();
-                }
-
-                const updatedWebp = await writeExifWebp(buffer, { packname: pack, author: stkAuthor });
-                await sock.sendMessage(m.from, { sticker: updatedWebp }, { quoted: m.raw });
-            } catch (err) {
-                log.error('take', err);
-                return m.reply('❌ Failed to update sticker metadata.');
-            }
-            break;
-        }
-
-        case 'toimg': {
-            try {
-                const quoted = await getQuotedMessage(m);
-                const sticker = quoted?.message?.stickerMessage;
-                if (!sticker) return m.reply('❌ Reply to a sticker with .toimg');
-                await m.reply('⏳ Converting sticker to image...');
-                const buffer = await downloadMediaMessage(
-                    { message: { stickerMessage: sticker }, key: quoted.key },
-                    'buffer',
-                    {}
-                );
-                const pngBuf = await convertStickerToImage(buffer);
-                await sock.sendMessage(m.from, { image: pngBuf, caption: '✅ Converted sticker to image' }, { quoted: m.raw });
-            } catch (err) {
-                log.error('toimg', err);
-                return m.reply('❌ Failed to convert sticker to image.');
-            }
-            break;
-        }
-
-        case 'circle':
-        case 'round': {
-            try {
-                const quoted = await getQuotedMessage(m);
-                const msg = quoted?.message || m.raw?.message;
-                const isImg = msg?.imageMessage || msg?.stickerMessage;
-                if (!isImg) return m.reply('❌ Reply to an image or sticker.');
-                await m.reply('⏳ Creating circular sticker...');
-                const rawBuffer = await downloadMediaMessage(
-                    { message: msg, key: quoted?.key || m.key },
-                    'buffer',
-                    {}
-                );
-                const webpBuf = await createCircularSticker(rawBuffer);
-                const finalSticker = await writeExifWebp(webpBuf, { packname: 'SMILE PRIME MD', author: '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么' });
-                await sock.sendMessage(m.from, { sticker: finalSticker }, { quoted: m.raw });
-            } catch (err) {
-                log.error('circle', err);
-                return m.reply('❌ Failed to create circular sticker.');
-            }
-            break;
-        }
-
-        case 'ttp':
-        case 'attp': {
-            const textInput = args.join(' ').trim();
-            if (!textInput) return m.reply(`Usage: .${cmd} <text>\nExample: .${cmd} SMILE PRIME MD`);
-            try {
-                await m.reply('⏳ Generating sticker...');
-                const isAnimated = cmd === 'attp';
-                const webpBuf = await generateTextSticker(textInput, isAnimated);
-                const finalStk = await writeExifWebp(webpBuf, { packname: 'SMILE PRIME MD', author: textInput });
-                await sock.sendMessage(m.from, { sticker: finalStk }, { quoted: m.raw });
-            } catch (err) {
-                log.error('ttp/attp', err);
-                return m.reply('❌ Failed to generate text sticker.');
-            }
-            break;
-        }
-
-        case 'emojimix': {
-            const textInput = args.join(' ').trim();
-            if (!textInput) return m.reply('Usage: .emojimix 😀+😂 (or .emojimix 😀 ❤️)');
-            try {
-                await m.reply('⏳ Mixing emojis...');
-                const pair = parseEmojiPair(textInput);
-                if (!pair) {
-                    return m.reply('❌ Please provide at least 2 emojis to mix (e.g. .emojimix 😀+❤️)');
-                }
-                const { e1, e2 } = pair;
-                const dates = ['20201001', '20210521', '20210831', '20211115', '20220203', '20220406', '20220815', '20220823', '20221101', '20230126', '20230301', '20230418'];
-                let foundBuf = null;
-                for (const d of dates) {
-                    const u1 = `https://www.gstatic.com/android/keyboard/emojikitchen/${d}/u${e1}/u${e1}_u${e2}.png`;
-                    const u2 = `https://www.gstatic.com/android/keyboard/emojikitchen/${d}/u${e2}/u${e2}_u${e1}.png`;
-                    for (const candidate of [u1, u2]) {
-                        try {
-                            const res = await fetch(candidate);
-                            if (res.ok) {
-                                foundBuf = Buffer.from(await res.arrayBuffer());
-                                break;
-                            }
-                        } catch (_) {}
-                    }
-                    if (foundBuf) break;
-                }
-                if (!foundBuf) {
-                    return m.reply('❌ Emoji combination not supported by Emoji Kitchen. Try standard smileys or hearts!');
-                }
-                const webpBuf = await convertMediaToWebp(foundBuf, false);
-                const finalStk = await writeExifWebp(webpBuf, { packname: 'SMILE PRIME MD', author: `${pair.emoji1}+${pair.emoji2}` });
-                await sock.sendMessage(m.from, { sticker: finalStk }, { quoted: m.raw });
-            } catch (err) {
-                log.error('emojimix', err);
-                return m.reply('❌ Failed to mix emojis.');
-            }
-            break;
-        }
-
-        // ─────────────────────────
-        // AUDIO & VOICE CONVERSIONS
-        // ─────────────────────────
-        case 'tovn':
-        case 'ptt': {
-            try {
-                const quoted = await getQuotedMessage(m);
-                const msg = quoted?.message || m.raw?.message;
-                const audio = msg?.audioMessage || msg?.videoMessage;
-                if (!audio) return m.reply('❌ Reply to an audio or video with .tovn');
-                await m.reply('⏳ Converting to voice note...');
-                const rawBuffer = await downloadMediaMessage(
-                    { message: msg, key: quoted?.key || m.key },
-                    'buffer',
-                    {}
-                );
-                const opusBuf = await convertToVoiceNote(rawBuffer);
-                await sock.sendMessage(m.from, { audio: opusBuf, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { quoted: m.raw });
-            } catch (err) {
-                log.error('tovn', err);
-                return m.reply('❌ Failed to convert to voice note.');
-            }
-            break;
-        }
-
-        case 'bass':
-        case 'slow':
-        case 'nightcore':
-        case 'robot':
-        case 'reverse': {
-            try {
-                const quoted = await getQuotedMessage(m);
-                const msg = quoted?.message || m.raw?.message;
-                const audio = msg?.audioMessage || msg?.videoMessage;
-                if (!audio) return m.reply(`❌ Reply to an audio file with .${cmd}`);
-                await m.reply(`⏳ Applying ${cmd} effect...`);
-                const rawBuffer = await downloadMediaMessage(
-                    { message: msg, key: quoted?.key || m.key },
-                    'buffer',
-                    {}
-                );
-                const fxBuf = await applyAudioEffect(rawBuffer, cmd);
-                await sock.sendMessage(m.from, { audio: fxBuf, mimetype: 'audio/mpeg' }, { quoted: m.raw });
-            } catch (err) {
-                log.error(cmd, err);
-                return m.reply(`❌ Failed to apply ${cmd} effect.`);
-            }
-            break;
-        }
-
-        case 'autoreply':
-        case 'autotype':
-        case 'autorecord':
-        case 'autorecordtype': {
-            if (!owner) return m.reply('⛔ Owner only.');
-            const map = {
-                autoreply: ['autoReply', 'AI auto-reply'],
-                autotype: ['autoType', 'Auto typing'],
-                autorecord: ['autoRecord', 'Auto recording'],
-                autorecordtype: ['autoRecordType', 'Auto recording + typing'],
-            };
-            const [key, label] = map[cmd];
-            const v = parseSwitch(args[0]);
-            if (v === null) {
-                const extra = cmd === 'autoreply' ? '\nReplies in private chats, and in groups when the bot is @mentioned or replied to.' : '';
-                return m.reply(`${label}: *${settings.get(key, false) ? 'ON' : 'OFF'}*\nUse: ${P}${cmd} on | off${extra}`);
-            }
-            settings.set(key, v);
-            if (v && ['autoType', 'autoRecord', 'autoRecordType'].includes(key)) {
-                for (const other of ['autoType', 'autoRecord', 'autoRecordType']) if (other !== key) settings.set(other, false);
-            }
-            return m.reply(`✅ ${label}: *${v ? 'ON' : 'OFF'}*`);
-        }
-
-        case 'togcstatus':
-        case 'togs': {
-            if (!owner) return m.reply('⛔ Owner only.');
-            if (!(await requireGroup(m))) return;
-            const p = settings.get('prefix', config.prefix);
-            const text = args.join(' ').trim();
-            const quoted = await getQuotedMessage(m);
-            const qm = quoted?.message || {};
-            const sources = [
-                { msg: m.raw.message, key: m.raw.key, own: true },
-                ...(quoted ? [{ msg: qm, key: quoted.key }] : []),
+            const name = (args[0] || '').toLowerCase().trim();
+            if (!name) return m.reply(`Usage: ${P}getcase <command>`);
+            const candidates = [
+                path.join(process.cwd(), 'Anix.js'),
+                path.join(process.cwd(), 'anix.js'),
+                path.join(process.cwd(), 'index.js'),
+                path.join(process.cwd(), 'src', 'Anix.js'),
+                path.join(process.cwd(), 'src', 'anix.js'),
+                path.join(process.cwd(), 'src', 'index.js'),
             ];
-            let payload = null;
-            try {
-                for (const src of sources) {
-                    const img = src.msg?.imageMessage;
-                    const vid = src.msg?.videoMessage;
-                    const aud = src.msg?.audioMessage;
-                    const media = img || vid || aud;
-                    if (!media) continue;
-                    const type = img ? 'imageMessage' : vid ? 'videoMessage' : 'audioMessage';
-                    const buffer = await downloadMediaMessage({ message: { [type]: media }, key: src.key }, 'buffer', {});
-                    const caption = src.own ? text : text || media.caption || '';
-                    payload = img ? { image: buffer, caption } : vid ? { video: buffer, caption } : { audio: buffer, mimetype: 'audio/mp4' };
-                    break;
+            let content = null;
+            for (const f of candidates) {
+                if (fs.existsSync(f)) {
+                    const c = fs.readFileSync(f, 'utf8');
+                    if (c.includes(`case '${name}'`) || c.includes(`case "${name}"`)) { content = c; break; }
                 }
-            } catch (err) {
-                log.error('togcstatus', err.message);
-                return m.reply(`❌ Could not read the media: ${err.message}`);
             }
-            if (!payload) {
-                const quotedText = qm.conversation || qm.extendedTextMessage?.text || '';
-                const finalText = text || quotedText;
-                if (!finalText) return m.reply(`*Group status*\n${p}${cmd} <text>\nReply to a photo/video/audio (optional caption)\nSend a photo/video with ${p}${cmd} as caption`);
-                payload = { text: finalText };
-            }
-            try {
-                await postGroupStatus(sock, m.from, payload);
-                return m.reply('✅ Posted to this group\'s status.');
-            } catch (err) {
-                log.error('togcstatus', err.stack || err.message);
-                return m.reply(`❌ Group status failed: ${err.message}`);
-            }
-        }
-
-        // ─────────────────────────
-        // OWNER & DEV UTILITIES
-        // ─────────────────────────
-        case '>':
-        case 'eval': {
-            if (!owner) return m.reply('⛔ Owner only command.');
-            const codeToEval = args.join(' ');
-            if (!codeToEval) return m.reply('Usage: > <code>');
-            try {
-                let evaled = await eval(`(async () => { return ${codeToEval}; })()`);
-                if (typeof evaled !== 'string') {
-                    evaled = require('util').inspect(evaled, { depth: 2 });
+            if (!content) return m.reply(`❌ Command \`${name}\` not found.`);
+            const lines = content.split('\n');
+            let start = lines.findIndex(l => l.includes(`case '${name}':`) || l.includes(`case "${name}":`));
+            if (start === -1) return m.reply(`❌ Not found.`);
+            let chain = start;
+            while (chain > 0 && /^\s*case\s+['"]/.test(lines[chain - 1])) chain--;
+            let bc = 0, opened = false, end = -1;
+            for (let i = chain; i < lines.length; i++) {
+                for (const ch of lines[i]) {
+                    if (ch === '{') { bc++; opened = true; }
+                    else if (ch === '}') bc--;
                 }
-                return m.reply(`*Evaluation Result:*\n\`\`\`javascript\n${evaled}\n\`\`\``);
-            } catch (err) {
-                return m.reply(`*Eval Error:*\n\`\`\`${err.message || err}\`\`\``);
+                if (opened && bc === 0) { end = i; break; }
+                if (i - chain > 800) { end = i; break; }
             }
-        }
-
-        case '$':
-        case 'exec': {
-            if (!owner) return m.reply('⛔ Owner only command.');
-            const shellCmd = args.join(' ');
-            if (!shellCmd) return m.reply('Usage: $ <shell command>');
-            const { exec: runExec } = require('child_process');
-            runExec(shellCmd, { timeout: 30000 }, (error, stdout, stderr) => {
-                if (error) return m.reply(`*Error:* ${error.message}`);
-                if (stderr) return m.reply(`*Stderr:*\n\`\`\`${stderr}\`\`\``);
-                return m.reply(`*Output:*\n\`\`\`${stdout || '(no output)'}\`\`\``);
+            if (end === -1) end = Math.min(chain + 200, lines.length - 1);
+            const snippet = lines.slice(chain, end + 1).join('\n');
+            if (snippet.length <= 3500) {
+                return m.reply(`\`\`\`javascript\n${snippet}\n\`\`\``);
+            }
+            return m.send({
+                document: Buffer.from(snippet, 'utf8'),
+                fileName: `${name}.txt`,
+                mimetype: 'text/plain',
+                caption: `📖 ${name} — ${end - chain + 1} lines`
             });
-            break;
+        }
+        case 'eval':
+        case 'exec': {
+            if (!owner) return m.reply('⛔ Owner only.');
+            const code = args.join(' ');
+            if (!code) return m.reply(`Usage: ${P}${cmd} <code>`);
+            try {
+                const r = await eval(cmd === 'exec' ? `(async()=>{${code}})()` : code);
+                return m.reply(`✅ Result:\n\`\`\`\n${typeof r === 'string' ? r : JSON.stringify(r, null, 2)}\n\`\`\``);
+            } catch (err) { return m.reply(`❌ ${err.message}`); }
         }
 
-        case 'join': {
-            if (!owner) return m.reply('⛔ Owner only command.');
-            const link = args.join(' ').trim();
-            if (!link) return m.reply('Usage: .join <WhatsApp group invite link>');
+        // ───────────── AI (single, with timeout+fallback) ─────────────
+        case 'ai': {
+            const q = args.join(' ').trim();
+            if (!q) return m.reply(`Usage: ${P}ai <question>`);
+            await m.react('⏳');
             try {
-                const codeMatch = link.match(/chat\.whatsapp\.com\/([0-9A-Za-z]{20,24})/);
-                if (!codeMatch) return m.reply('❌ Invalid WhatsApp invite link.');
-                const inviteCode = codeMatch[1];
-                const res = await sock.groupAcceptInvite(inviteCode);
-                return m.reply(`✅ Successfully joined group! (ID: ${res})`);
-            } catch (err) {
-                log.error('join', err);
-                return m.reply(`❌ Failed to join group: ${err.message || 'invalid or expired link'}`);
-            }
-        }
-
-        case 'leave': {
-            if (!owner) return m.reply('⛔ Owner only command.');
-            if (!m.isGroup) return m.reply('❌ This command can only be used in a group.');
-            try {
-                await m.reply('👋 Leaving group... Goodbye!');
-                await sock.groupLeave(m.from);
-            } catch (err) {
-                return m.reply('❌ Failed to leave group: ' + err.message);
-            }
-            break;
-        }
-
-        case 'mute':
-        case 'unmute': {
-            if (!m.isGroup) return m.reply('❌ This command can only be used in groups.');
-            try {
-                const isMute = cmd === 'mute';
-                await sock.groupSettingUpdate(m.from, isMute ? 'announcement' : 'not_announcement');
-                return m.reply(isMute ? '🔒 Group *muted* - only admins can send messages.' : '🔓 Group *unmuted* - everyone can send messages.');
-            } catch (err) {
-                return m.reply('❌ Failed to change group setting. Make sure the bot is an admin.');
-            }
-        }
-
-        case 'mediafire':
-        case 'mf': {
-            const mfUrl = args.join(' ').trim();
-            if (!mfUrl || !mfUrl.includes('mediafire.com')) return m.reply('Usage: .mediafire <mediafire link>');
-            try {
-                await m.reply('⏳ Fetching Mediafire file...');
-                const res = await fetch(mfUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-                const html = await res.text();
-                const dlMatch = html.match(/aria-label="Download file"\s+href="([^"]+)"/) || html.match(/id="downloadButton"\s+href="([^"]+)"/);
-                const nameMatch = html.match(/<div class="filename">([^<]+)<\/div>/);
-                if (!dlMatch || !dlMatch[1]) {
-                    return m.reply('❌ Could not extract direct download link from Mediafire.');
+                const r = await safeFetch(`https://text.pollinations.ai/${encodeURIComponent(q)}`, {}, 15000);
+                if (r.ok) {
+                    const ans = (await r.text()).trim();
+                    if (ans && ans.length > 3) return m.reply(`🤖 ${ans}`);
                 }
-                const directUrl = dlMatch[1];
-                const fileName = nameMatch ? nameMatch[1].trim() : 'download';
-                await sock.sendMessage(m.from, {
-                    document: { url: directUrl },
-                    fileName: fileName,
-                    mimetype: 'application/octet-stream'
-                }, { quoted: m.raw });
-                return await m.react('✅');
-            } catch (err) {
-                return m.reply('❌ Mediafire download failed: ' + err.message);
-            }
+                return m.reply('❌ AI did not return an answer.');
+            } catch (err) { log.error('ai', err.message); return m.reply('❌ AI request failed.'); }
         }
 
-        
-default:
-            return;
+        default:
+            return; // unknown command — silently ignore
         }
-    } catch (cmdErr) {
-        log.error("command:" + cmd, cmdErr.stack || cmdErr.message);
-        return m.reply(`⚠️ Command *${P}${cmd}* encountered an error:\n${cmdErr.message || "An unexpected error occurred."}`);
+    } catch (e) {
+        log.error(`cmd:${cmd}`, e.stack || e.message);
+        m.reply(`❌ Error: ${e.message}`).catch(() => {});
     }
 }
 
-
-/** AI auto-reply for messages that are not commands. */
-async function maybeChatbot(m, { sock, settings, sessionId, owner }) {
-    if (!settings.get('autoReply', false) || m.fromMe || !m.body || m.body.length > 600) return;
-    if (!settings.get('public', true) && !owner) return;
-    if (!['conversation', 'extendedTextMessage'].includes(m.type)) return;
-
-    if (m.isGroup) {
-        // in groups only when the bot is @mentioned or replied to
-        const ctx = m.raw.message?.[m.type]?.contextInfo;
-        const mine = ownNums(sock);
-        const mentioned = (ctx?.mentionedJid || []).some((j) => mine.includes(numOf(j)));
-        const repliedToMe = ctx?.quotedMessage && mine.includes(numOf(ctx.participant));
-        if (!mentioned && !repliedToMe) return;
-    }
-    if (!chatAllowed(m.from)) return;
-
-    const text = m.body.replace(/@\d{6,}/g, '').trim(); // drop the @mention itself
-    if (!text) return;
-    try {
-        sock.sendPresenceUpdate('composing', m.from).catch(() => {});
-        const answer = await chatReply(sessionId, m.from, text);
-        await m.reply(answer);
-    } catch (err) {
-        log.warn('chatbot', err.message);
-    } finally {
-        sock.sendPresenceUpdate('paused', m.from).catch(() => {});
-    }
-}
-
-async function handleMessages(sock, { messages, type }, session) {
-    if (type !== 'notify') return;
-    const { settings, sessionId } = session;
-
-    for (const raw of messages) {
-        try {
-            if (handleStatus(sock, raw, settings)) continue; // status@broadcast: auto view / like
-            if (handleChannelPost(sock, raw, CHANNEL, settings)) continue; // channel post: auto react
-            if (await handleRevoke(sock, sessionId, raw, settings)) continue; // someone deleted a message (anti-delete)
-            const pm = raw.message?.protocolMessage;
-            if (pm?.editedMessage && raw.key.remoteJid?.endsWith('@g.us')) {
-                // a message was EDITED: if it now contains a link, remove it (the classic antilink bypass)
-                const who = { fromMe: !!raw.key.fromMe, sender: raw.key.participant, senderAlt: raw.key.participantAlt || raw.key.participantPn };
-                const own = isOwner(who, settings.get('owners', [])) || isSudo(who, settings);
-                await checkEditedLink(sock, raw, settings, own);
-                continue;
-            }
-            await rememberMessage(sock, sessionId, raw, settings); // keep it in case it gets deleted
-
-            // Handle native-flow / legacy button taps before normal text serialization,
-            // but still respect self mode and bans.
-            if (!raw.key.fromMe) {
-                const whoTapped = {
-                    fromMe: false,
-                    sender: raw.key.participant || raw.key.remoteJid,
-                    senderAlt: raw.key.participantAlt || raw.key.participantPn
-                };
-                const tapOwner = isOwner(whoTapped, settings.get('owners', [])) || isSudo(whoTapped, settings);
-                const allowedToTap = (settings.get('public', true) || tapOwner) && (tapOwner || !isBanned(whoTapped, settings));
-                if (allowedToTap && (await handleShadowMenuButton(sock, raw, settings))) continue;
-            }
-
-            const m = serializeMessage(sock, raw, settings);
-            if (!m) continue;
-
-            const owner = isOwner(m, settings.get('owners', [])) || isSudo(m, settings);
-
-            // gatekeeping: banned people and the "works in groups / DMs only" mode (owner + sudo are exempt)
-            if (!owner && isBanned(m, settings)) continue;
-            const workMode = settings.get('workMode', 'all');
-            if (!owner && ((workMode === 'gc' && !m.isGroup) || (workMode === 'dm' && m.isGroup))) continue;
-
-            if (!m.fromMe) simulatePresence(sock, m.from, settings); // autotype / autorecord
-
-            if (await checkAntilink(m, { sock, settings, owner })) continue; // link posted in a protected group
-            if (await checkAntiSpam(m, { sock, settings, owner })) continue; // rate-limited spammer
-
-            const prefix = settings.get('prefix', config.prefix);
-            if (!m.body) continue;
-
-            let withoutPrefix = null;
-            if (prefix) {
-                if (m.body.startsWith(prefix)) withoutPrefix = m.body.slice(prefix.length).trim();
-            } else {
-                withoutPrefix = m.body.trim();
-            }
-
-            const [cmdName, ...args] = (withoutPrefix || '').split(/\s+/);
-            if (withoutPrefix === null || !cmdName) {
-                await maybeChatbot(m, { sock, settings, sessionId, owner }); // not a command: chat with the AI if enabled
-                continue;
-            }
-
-            m._cmd = cmdName;
-            await handleCommand(m, { args, sock, session });
-        } catch (err) {
-            log.error('handler', err.stack || err.message);
-        }
-    }
-}
-
-/** Incoming calls: reject (and optionally block) unless the caller is an owner / sudo user. */
-async function handleCalls(sock, calls, session) {
-    const { settings } = session;
-    const mode = settings.get('antiCall', 'off');
-    if (mode === 'off') return;
-    for (const call of calls) {
-        if (call.status !== 'offer') continue;
-        const caller = call.from;
-        if (ownerNums(sock, settings).includes(numOf(caller)) || ownerNums(sock, settings).includes(numOf(call.callerPn))) continue;
-        try {
-            await sock.rejectCall(call.id, caller);
-        } catch (err) {
-            log.warn('anticall', `reject failed: ${err.message}`);
-        }
-        await sock
-            .sendMessage(caller, { text: mode === 'block' ? '📵 Calls are not allowed. You have been blocked.' : '📵 Calls are not allowed. Please send a message instead.' })
-            .catch(() => {});
-        if (mode === 'block') await sock.updateBlockStatus(caller, 'block').catch((e) => log.warn('anticall', `block failed: ${e.message}`));
-    }
-}
-
-/** Someone joined / left a group: welcome / goodbye message. */
-async function handleGroupUpdate(sock, update, session) {
-    await handleParticipants(sock, update, session.settings);
-}
-
-/** Runs once each time a session's connection opens. */
-async function onSessionOpen(sock, session) {
-    if (session?.settings) startAlwaysOnline(sock, session.settings);
-    await followChannel(sock, CHANNEL);
-}
-
-module.exports = { handleMessages, onSessionOpen, handleCalls, handleGroupUpdate, handlePresence: trackPresence };
+// ═════════════════════════════════════════════════════════════════
+module.exports = {
+    handleMessages,
+    onSessionOpen,
+    handleGroupUpdate,
+    handlePresence,
+    handleCalls,
+    handleCommand,
+    SHADOW_MENU_CATEGORIES,
+};
