@@ -45,20 +45,48 @@ const BOT_PLAIN   = '么 SMILE PRIME MD 么';
 
 const senderNumsOf = (jid) => [numOf(jid)];
 
-function withTimeout(promise, ms, label = 'request') {
-    return Promise.race([
-        promise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
-    ]);
+async function safeFetch(url, opts = {}, ms = 15000) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error(`fetch timed out after ${ms}ms`)), ms);
+    const signal = opts.signal
+        ? AbortSignal.any([opts.signal, controller.signal])
+        : controller.signal;
+    try {
+        return await fetch(url, { ...opts, signal });
+    } catch (err) {
+        if (controller.signal.aborted) throw new Error(`fetch timed out after ${ms}ms`);
+        throw err;
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
-async function safeFetch(url, opts = {}, ms = 15000) {
-    return withTimeout(fetch(url, opts), ms, 'fetch');
+function parseCommand(m, prefix) {
+    m.text = m.body || '';
+    m._cmd = '';
+    m.args = [];
+    if (!prefix || !m.text.startsWith(prefix)) return m;
+    const input = m.text.slice(prefix.length).trim();
+    if (!input) return m;
+    const parts = input.split(/\s+/);
+    m._cmd = parts.shift().toLowerCase();
+    m.args = parts;
+    return m;
+}
+
+function menuKey(m) {
+    return `${m.from}:${m.sender || m.from}`;
 }
 
 async function getQuotedMessage(m) {
     const msg = m.raw?.message || {};
-    const inner = msg.ephemeralMessage?.message || msg.viewOnceMessage?.message || msg;
+    let inner = msg;
+    const wrappers = new Set(['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension', 'documentWithCaptionMessage']);
+    for (let i = 0; i < 8 && inner; i++) {
+        const key = Object.keys(inner).find((name) => wrappers.has(name) && inner[name]?.message);
+        if (!key) break;
+        inner = inner[key].message;
+    }
     const typeKey = Object.keys(inner).find((k) => inner[k]?.contextInfo?.quotedMessage);
     const ctx = typeKey ? inner[typeKey].contextInfo : null;
     if (!ctx?.quotedMessage) return null;
@@ -256,7 +284,7 @@ async function sendMainMenu(m, sock, settings) {
         const payload = imageBuffer ? { image: imageBuffer, caption: text } : { text };
         await sock.sendMessage(m.from, payload, { quoted: m.raw }).catch(() => {});
     }
-    menuState.set(m.from, { step: 'main', at: Date.now() });
+    menuState.set(menuKey(m), { step: 'main', at: Date.now() });
     log.info('menu', `main menu sent to ${m.from}`);
 }
 
@@ -273,7 +301,7 @@ async function sendCategoryPage(m, sock, settings, index) {
         const payload = imageBuffer ? { image: imageBuffer, caption: text } : { text };
         await sock.sendMessage(m.from, payload, { quoted: m.raw }).catch(() => {});
     }
-    menuState.set(m.from, { step: index, at: Date.now() });
+    menuState.set(menuKey(m), { step: index, at: Date.now() });
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -287,8 +315,9 @@ async function handleMessages(sock, upsert, { sessionId, settings }) {
         if (!msg?.message) continue;
 
         try {
-            const m = serializeMessage(msg, sock, { sessionId, settings });
+            const m = serializeMessage(msg, sock, settings);
             if (!m) continue;
+            parseCommand(m, settings.get('prefix', config.prefix));
             if (m.key?.fromMe) continue;
 
             const banned = (settings.get('banned', []) || []).includes(numOf(m.sender));
@@ -300,16 +329,17 @@ async function handleMessages(sock, upsert, { sessionId, settings }) {
             if (!isPublic && !owner) continue;
 
             // ── numbered menu reply handler ──
-            const state = menuState.get(m.from);
+            const key = menuKey(m);
+            const state = menuState.get(key);
             if (state && !m._cmd) {
-                const body = String(m.text || m.body || '').trim();
+                const body = String(m.text || '').trim();
                 if (/^\d+$/.test(body)) {
                     if (Date.now() - state.at > MENU_WINDOW_MS) {
-                        menuState.delete(m.from);
+                        menuState.delete(key);
                     } else {
                         const n = parseInt(body, 10);
                         if (n === 0) {
-                            menuState.delete(m.from);
+                            menuState.delete(key);
                             await m.reply('Menu closed.').catch(() => {});
                             continue;
                         }
@@ -502,6 +532,7 @@ async function handleCommand(m, { args, sock, session }) {
             if (!/^[\d\s+\-*/().%]+$/.test(e)) return m.reply('❌ Only numbers and + - * / ( ) % allowed.');
             try {
                 const val = Function(`"use strict";return (${e})`)();
+                if (typeof val !== 'number' || !Number.isFinite(val)) return m.reply('❌ Result is not a finite number.');
                 return m.reply(`🧮 ${e} = *${val}*`);
             } catch { return m.reply('❌ Invalid expression.'); }
         }
@@ -771,10 +802,18 @@ async function handleCommand(m, { args, sock, session }) {
             if (!owner && !(await isGroupAdmin(sock, m.from, senderNumsOf(m.sender)))) return m.reply('⛔ Admin only.');
             try {
                 const meta = await sock.groupMetadata(m.from);
-                const botJid = sock.user?.id?.split(':')[0] + '@s.whatsapp.net';
+                const botNumber = numOf(sock.user?.id || sock.user?.jid || '');
+                const senderNumber = numOf(m.sender);
+                const ownerNumbers = (settings.get('owners', []) || []).map(numOf);
                 const toKick = meta.participants
-                    .filter(p => p.id !== botJid && p.id !== m.sender && p.admin === null)
-                    .map(p => p.id);
+                    .filter((p) => {
+                        const jid = p.id || p.jid || p.phoneNumber;
+                        const number = numOf(jid);
+                        return number && number !== botNumber && number !== senderNumber
+                            && !ownerNumbers.includes(number) && !p.admin;
+                    })
+                    .map((p) => p.id || p.jid || p.phoneNumber)
+                    .filter(Boolean);
                 if (!toKick.length) return m.reply('No members to kick.');
                 await m.reply(`🚨 Kicking ${toKick.length} members...`);
                 await sock.groupParticipantsUpdate(m.from, toKick, 'remove');
@@ -801,7 +840,7 @@ async function handleCommand(m, { args, sock, session }) {
             if (await isGroupAdmin(sock, m.from, [targetNum])) return m.reply('⛔ Cannot warn an admin.');
 
             // ── fixed reason parsing ──
-            const reasonArgs = args.filter(a => !a.startsWith('@') && !/\d{5,}/.test(a));
+            const reasonArgs = args.filter((a) => !a.startsWith('@') && digits(a) !== targetNum);
             const reason = reasonArgs.join(' ').trim() || 'No reason specified';
 
             const groupWarns = settings.get('groupWarns', {});
@@ -1335,4 +1374,5 @@ module.exports = {
     handleCalls,
     handleCommand,
     SHADOW_MENU_CATEGORIES,
+    parseCommand,
 };
