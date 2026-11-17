@@ -464,6 +464,20 @@ async function sendCategoryPage(m, sock, settings, index) {
     menuState.set(m.from, { step: index, at: Date.now() });
 }
 
+// in handleMessages, after serialize:
+const state = menuState.get(m.from);
+if (state && !m._cmd && /^\d+$/.test(m.body?.trim() || '')) {
+    const n = parseInt(m.body.trim(), 10);
+    if (Date.now() - state.at > MENU_WINDOW_MS) {
+        menuState.delete(m.from);
+    } else if (n === 0) {
+        menuState.delete(m.from);
+        return m.reply('Menu closed.');
+    } else if (n >= 1 && n <= SHADOW_MENU_CATEGORIES.length) {
+        return sendCategoryPage(m, sock, settings, n - 1);
+    }
+}
+
 // ═════════════════════════════════════════════════════════════════
 //                              HELPERS
 // ═════════════════════════════════════════════════════════════════
