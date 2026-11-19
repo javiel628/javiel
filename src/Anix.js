@@ -76,7 +76,18 @@ const EPHOTO = {
     graffiti:    'https://en.ephoto360.com/create-a-cartoon-style-graffiti-text-effect-online-668.html',
     cat:         'https://en.ephoto360.com/handwritten-text-on-foggy-glass-online-680.html',
     gold:        'https://en.ephoto360.com/modern-gold-4-213.html',
-    child:       'https://en.ephoto360.com/write-text-on-wet-glass-online-589.html'
+    child:       'https://en.ephoto360.com/write-text-on-wet-glass-online-589.html',
+// ─── extra text effects ───
+fire:       'https://en.ephoto360.com/flame-lettering-effect-372.html',
+galaxy:     'https://en.ephoto360.com/galaxy-text-effect-641.html',
+rainbow:    'https://en.ephoto360.com/rainbow-text-effect-online-101.html',
+horror:     'https://en.ephoto360.com/horror-text-effect-285.html',
+stone:      'https://en.ephoto360.com/stone-text-effect-246.html',
+birthday:   'https://en.ephoto360.com/create-colorful-birthday-text-effect-online-703.html',
+christmas:  'https://en.ephoto360.com/christmas-text-effect-online-100.html',
+halloween:  'https://en.ephoto360.com/halloween-text-effect-online-101.html',
+valentine:  'https://en.ephoto360.com/valentine-s-day-text-effect-online-99.html'
+    
 };
 
 
@@ -607,7 +618,18 @@ case 'naruto':
 case 'graffiti':
 case 'cat':
 case 'gold':
-case 'child': {
+case 'fire':          // ← new
+case 'galaxy':        // ← new
+case 'rainbow':       // ← new
+case 'horror':        // ← new
+case 'stone':         // ← new
+case 'birthday':      // ← new
+case 'christmas':     // ← new
+case 'halloween':     // ← new
+case 'valentine':     // ← new
+case 'child': {   
+} 
+    // ... existing body unchanged: {
     const logoText = args.join(' ').trim();
     if (!logoText) return m.reply(`Usage: ${P}${cmd} <text>`);
     if (logoText.length > 50) return m.reply('❌ Max 50 characters.');
