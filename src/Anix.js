@@ -31,7 +31,6 @@ const { checkAntilink, checkEditedLink, getCfg: antilinkCfg, setCfg: setAntilink
 const { GROUP_CMDS, runGroupCommand, trackPresence } = require('./commands/group');
 const { handleParticipants } = require('./lib/welcome');
 const { sendCopy } = require('./lib/buttons');
-const { rememberMessage, handleRevoke } = require('./lib/antidelete');
 const { chatReply, allowed: chatAllowed } = require('./lib/chatbot');
 const { simulatePresence, startAlwaysOnline } = require('./lib/presence');
 const { apiGet, uploadToCatbox } = require('./lib/api');
