@@ -708,7 +708,105 @@ case 'darkgpt': {
     }
 }                
 
+case 'pack':
+case 'rebrand': {
+    const quoted = await getQuotedMessage(m);
+    if (!quoted) return m.reply(`Reply to a sticker or sticker pack with *${P}pack [name]*`);
 
+    const packName   = args.join(' ').trim() || 'SMILE PRIME MD';
+    const authorName = '么 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 么';
+
+    // ── Case A: single sticker ──────────────────────────────────────
+    const stk = quoted.message?.stickerMessage;
+    if (stk) {
+        await m.react('⏳');
+        try {
+            const buf = await downloadMediaMessage(
+                { message: { stickerMessage: stk }, key: quoted.key },
+                'buffer',
+                {}
+            );
+            const webp = await writeExifWebp(buf, { packname: packName, author: authorName });
+            await sock.sendMessage(m.from, { sticker: webp }, { quoted: m.raw });
+            return m.reply(`✅ Rebranded 1 sticker\n📦 ${packName}\n👤 ${authorName}`);
+        } catch (err) {
+            log.error('pack-single', err.message);
+            return m.reply(`❌ Failed: ${err.message}`);
+        }
+    }
+
+    // ── Case B: sticker pack ───────────────────────────────────────
+    const pack = quoted.message?.stickerPackMessage;
+    if (!pack) {
+        return m.reply(
+            `📦 *PACK*\n\n` +
+            `Reply to a sticker to rebrand it,\n` +
+            `or reply to a sticker pack to rebrand every sticker.\n\n` +
+            `Usage: *${P}pack [pack name]*`
+        );
+    }
+
+    await m.react('⏳');
+
+    // pack.stickers is metadata only — we need to fetch each sticker
+    // via the packId + each sticker's fileSha256 from WhatsApp's CDN.
+    const meta = pack.stickers || [];
+    if (!meta.length) return m.reply('❌ That pack appears empty.');
+
+    let count = 0, failed = 0;
+
+    for (const s of meta) {
+        try {
+            // Reconstruct a download key for this sticker from pack metadata.
+            // Baileys exposes the pack's media key in pack.mediaKey.
+            const stickerKey = {
+                remoteJid: m.from,
+                id: s.fileSha256 ? Buffer.from(s.fileSha256).toString('hex') : undefined,
+                fromMe: false,
+                participant: quoted.key.participant
+            };
+
+            // ⚠️ WhatsApp doesn't give us a direct download URL for pack stickers.
+            // We have to re-request the pack with the sticker's fileSha256.
+            const buf = await sock.downloadStickerFromPack?.(
+                pack.packId,
+                s.fileSha256,
+                pack.mediaKey
+            ).catch(() => null);
+
+            if (!buf) { failed++; continue; }
+
+            const webp = await writeExifWebp(buf, { packname: packName, author: authorName });
+            await sock.sendMessage(m.from, { sticker: webp }, { quoted: m.raw });
+            count++;
+
+            // small delay so WhatsApp doesn't rate-limit
+            await new Promise(r => setTimeout(r, 300));
+        } catch (e) {
+            log.warn('pack', `sticker failed: ${e.message}`);
+            failed++;
+        }
+    }
+
+    if (count === 0) {
+        return m.reply(
+            `❌ Could not rebrand any sticker.\n\n` +
+            `*Reason:* WhatsApp hides the actual sticker bytes for packs — ` +
+            `only the pack metadata is exposed. ` +
+            `${failed} sticker(s) failed to download.\n\n` +
+            `*Workaround:* send the stickers individually and reply with *${P}pack* to each one.`
+        );
+    }
+
+    return m.reply(
+        `✅ Rebranded *${count}/${meta.length}* stickers` +
+        (failed ? `\n⚠️ ${failed} failed (WhatsApp rate-limit or missing bytes)` : '') +
+        `\n📦 ${packName}\n👤 ${authorName}`
+    );
+}
+
+
+				
                 
 
         // ───────────────────────── group moderation & tools ─────────────────────────
