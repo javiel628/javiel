@@ -628,8 +628,63 @@ case 'child': {
     }
 }
 
+case 'vision':
+case 'aiimg': {
+    const quoted = await getQuotedMessage(m);
+    const imgMsg = quoted?.message?.imageMessage;
+    const prompt = args.join(' ').trim() || 'Describe this image in detail.';
+    if (!imgMsg) return m.reply(`Reply to an image with: *${P}vision <question>*`);
+    await m.react('👁️');
+    try {
+        const buffer = await downloadMediaMessage({ message: { imageMessage: imgMsg }, key: quoted.key }, 'buffer', {});
+        const hostedUrl = await uploadToCatbox(buffer, 'vision.jpg');
+        const data = await apiGet(`/ai/gemini-vision?url=${encodeURIComponent(hostedUrl)}&instruction=${encodeURIComponent(prompt)}`);
+        const answer = data?.result;
+        if (!answer) return m.reply('❌ Vision AI did not return an answer.');
+        return m.reply(`👁️ *Vision AI*\n\n${answer}`);
+    } catch (err) {
+        log.error('vision', err.message);
+        return m.reply(`❌ Vision failed: ${err.message}`);
+    }
+}
 
+case 'gpt':
+case 'smile': {
+    const q = args.join(' ').trim();
+    if (!q) return m.reply(`Usage: ${P}${cmd} <question>`);
+    await m.react('⏳');
+    try {
+        const endpoints = [
+            `https://bk9.fun/ai/llama?q=${encodeURIComponent(q)}`,
+            `https://bk9.fun/ai/jeeves-chat?q=${encodeURIComponent(q)}`,
+            `https://bk9.fun/ai/jeeves-chat2?q=${encodeURIComponent(q)}`
+        ];
+        for (const url of endpoints) {
+            try {
+                const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+                if (!res.ok) continue;
+                const json = await res.json();
+                if (json?.BK9) return m.reply(`🤖 *AI*\n\n${json.BK9}`);
+            } catch {}
+        }
+        return m.reply('❌ All AI endpoints failed.');
+    } catch (err) {
+        return m.reply(`❌ Failed: ${err.message}`);
+    }
+}
 
+case 'darkgpt': {
+    const q = args.join(' ').trim();
+    if (!q) return m.reply(`Usage: ${P}darkgpt <question>`);
+    try {
+        const data = await apiGet(`/ai/makgpt?text=${encodeURIComponent(q)}`);
+        const ans = data?.result;
+        if (!ans) return m.reply('❌ No response.');
+        return m.reply(`😈 *DarkGPT*\n\n${ans}`);
+    } catch (err) {
+        return m.reply(`❌ Failed: ${err.message}`);
+    }
+}                
 
                 
 
