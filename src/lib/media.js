@@ -62,8 +62,8 @@ async function convertMediaToWebp(buffer, isVideo = false) {
 function metadataExif(packname, author) {
     const json = Buffer.from(JSON.stringify({
         'sticker-pack-id': 'shadow-md',
-        'sticker-pack-name': String(packname || 'Shadow MD').slice(0, 80),
-        'sticker-pack-publisher': String(author || 'Shadow MD').slice(0, 80),
+        'sticker-pack-name': String(packname || '').slice(0, 80),
+        'sticker-pack-publisher': String(author || '').slice(0, 80),
         emojis: [],
     }), 'utf8');
     const header = Buffer.from([
