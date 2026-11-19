@@ -582,6 +582,58 @@ async function handleCommand(m, { args, sock, session }) {
             return sendMainMenu(m, sock, settings);
 
 
+case 'neon':
+case 'metallic':
+case 'ice':
+case 'snow':
+case 'impressive':
+case 'noel':
+case 'water':
+case 'matrixlogo':
+case 'light':
+case 'silver':
+case 'silva':
+case 'devil':
+case 'typography':
+case 'purple':
+case 'thunder':
+case 'leaves':
+case '1917':
+case 'arena':
+case 'hacker':
+case 'sand':
+case 'dragonball':
+case 'naruto':
+case 'graffiti':
+case 'cat':
+case 'gold':
+case 'child': {
+    const logoText = args.join(' ').trim();
+    if (!logoText) return m.reply(`Usage: ${P}${cmd} <text>`);
+    if (logoText.length > 50) return m.reply('❌ Max 50 characters.');
+
+    const key = cmd === 'matrixlogo' ? 'matrix' : (cmd === 'silva' ? 'silver' : cmd);
+    const url = EPHOTO[key];
+    if (!url) return m.reply('❌ Unknown logo style.');
+
+    await m.react('🎨');
+    try {
+        const mumaker = require('mumaker');
+        const result = await mumaker.ephoto(url, logoText);
+        if (!result?.image) return m.reply('❌ Generation failed.');
+        return m.send({ image: { url: result.image }, caption: `🎨 ${key.toUpperCase()} · ${botName(settings, config)}` });
+    } catch (err) {
+        log.error('logo', `${key}: ${err.message}`);
+        return m.reply(`❌ Failed: ${err.message}`);
+    }
+}
+
+
+
+
+                
+
+
         // ───────────────────────── group moderation & tools ─────────────────────────
         case 'del':
         case 'delete': {
@@ -1552,7 +1604,7 @@ async function handleCommand(m, { args, sock, session }) {
             const results = [];
 
             // Add brand font first (么 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 style)
-            results.push(`┃ 么 𝚳𝚯𝐃𝐙      › 么 ${brandFont(text)} 么`);
+            results.push(`┃𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 ${brandFont(text)} 么`);
 
             // Add the standard fonts
             for (const [name, map] of Object.entries(fonts)) {
