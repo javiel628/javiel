@@ -41,28 +41,10 @@ function paymentContext(jid) {
  * Passed in explicitly rather than imported as a singleton, since every
  * session now has its own isolated settings.
  */
-function unwrapMessage(message) {
-    let current = message;
-    const wrappers = new Set([
-        'ephemeralMessage',
-        'viewOnceMessage',
-        'viewOnceMessageV2',
-        'viewOnceMessageV2Extension',
-        'documentWithCaptionMessage',
-    ]);
-    for (let i = 0; i < 8 && current; i++) {
-        const key = Object.keys(current).find((name) => wrappers.has(name) && current[name]?.message);
-        if (!key) break;
-        current = current[key].message;
-    }
-    return current || message;
-}
-
 function serializeMessage(sock, msg, sessionSettings) {
     if (!msg.message) return null;
 
-    const content = unwrapMessage(msg.message);
-    const type = getContentType(content);
+    const type = getContentType(msg.message);
     const from = msg.key.remoteJid;
     const isGroup = from?.endsWith('@g.us');
     const sender = isGroup ? msg.key.participant : from;
@@ -70,28 +52,27 @@ function serializeMessage(sock, msg, sessionSettings) {
     const senderAlt = isGroup ? msg.key.participantAlt || msg.key.participantPn : msg.key.remoteJidAlt || msg.key.senderPn;
 
     let body = '';
-    if (type === 'conversation') body = content.conversation;
-    else if (type === 'extendedTextMessage') body = content.extendedTextMessage.text;
-    else if (type === 'imageMessage') body = content.imageMessage.caption || '';
-    else if (type === 'videoMessage') body = content.videoMessage.caption || '';
-    else if (type === 'documentMessage') body = content.documentMessage.caption || '';
+    if (type === 'conversation') body = msg.message.conversation;
+    else if (type === 'extendedTextMessage') body = msg.message.extendedTextMessage.text;
+    else if (type === 'imageMessage') body = msg.message.imageMessage.caption || '';
+    else if (type === 'videoMessage') body = msg.message.videoMessage.caption || '';
     else if (type === 'interactiveResponseMessage') {
-        const resp = content.interactiveResponseMessage;
+        const resp = msg.message.interactiveResponseMessage;
         try {
             body = JSON.parse(resp.nativeFlowResponseMessage?.paramsJson || '{}').id || '';
         } catch {
             body = '';
         }
     } else if (type === 'listResponseMessage') {
-        body = content.listResponseMessage.singleSelectReply?.selectedRowId || '';
+        body = msg.message.listResponseMessage.singleSelectReply?.selectedRowId || '';
     } else if (type === 'buttonsResponseMessage') {
-        body = content.buttonsResponseMessage.selectedButtonId || '';
+        body = msg.message.buttonsResponseMessage.selectedButtonId || '';
     }
 
     // Extract quoted context metadata
     const contextInfo =
-        content?.extendedTextMessage?.contextInfo ||
-        content?.[type]?.contextInfo;
+        msg.message?.extendedTextMessage?.contextInfo ||
+        msg.message?.[type]?.contextInfo;
     const quotedMsg = contextInfo?.quotedMessage || null;
     const quotedType = quotedMsg ? getContentType(quotedMsg) : null;
     const quotedDoc = quotedMsg?.documentMessage || quotedMsg?.documentWithCaptionMessage?.message?.documentMessage;
@@ -123,7 +104,6 @@ function serializeMessage(sock, msg, sessionSettings) {
         fromMe,
         type,
         body: (body || '').trim(),
-        text: (body || '').trim(),
         pushName: msg.pushName || 'Unknown',
         quoted,
 
@@ -152,4 +132,4 @@ function serializeMessage(sock, msg, sessionSettings) {
     };
 }
 
-module.exports = { serializeMessage, unwrapMessage };
+module.exports = { serializeMessage };
