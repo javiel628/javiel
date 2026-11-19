@@ -724,7 +724,7 @@ case 'rebrand': {
                 {}
             );
             const webp = await writeExifWebp(buf, {
-                packname: args.join(' ') || '',
+                packname: args.join(' 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 ') || '',
                 author:   '𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙'
             });
             return sock.sendMessage(m.from, { sticker: webp }, { quoted: m.raw });
@@ -756,7 +756,7 @@ case 'rebrand': {
         const stickers = album.stickers || album.stickerPackMessage?.stickers || [];
         if (!stickers.length) return m.reply('❌ No stickers found in that pack.');
 
-        const packName = args.join(' ') || '';
+        const packName = args.join(' ') || ' 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙';
         const authorName = '𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 ';
 
         let count = 0;
