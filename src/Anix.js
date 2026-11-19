@@ -724,8 +724,8 @@ case 'rebrand': {
                 {}
             );
             const webp = await writeExifWebp(buf, {
-                packname: args.join(' ') || 'SMILE PRIME MD',
-                author:   '么 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙 么'
+                packname: args.join(' ') || '',
+                author:   '𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙'
             });
             return sock.sendMessage(m.from, { sticker: webp }, { quoted: m.raw });
         } catch (err) {
