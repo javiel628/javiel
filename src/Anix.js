@@ -628,7 +628,7 @@ case 'christmas':     // ← new
 case 'halloween':     // ← new
 case 'valentine':     // ← new
 case 'child': {   
-} 
+
     // ... existing body unchanged: {
     const logoText = args.join(' ').trim();
     if (!logoText) return m.reply(`Usage: ${P}${cmd} <text>`);
