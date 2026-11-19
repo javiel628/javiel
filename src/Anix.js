@@ -50,6 +50,34 @@ const {
     applyAudioEffect
 } = require('./lib/media');
 const { parseEmojiPair } = require('./lib/emoji-kitchen');
+// ──────────────── LOGO MAKER HELPER ────────────────
+const EPHOTO = {
+    neon:        'https://en.ephoto360.com/create-colorful-neon-light-text-effects-online-797.html',
+    metallic:    'https://en.ephoto360.com/impressive-decorative-3d-metal-text-effect-798.html',
+    ice:         'https://en.ephoto360.com/ice-text-effect-online-101.html',
+    snow:        'https://en.ephoto360.com/create-a-snow-3d-text-effect-free-online-621.html',
+    impressive:  'https://en.ephoto360.com/create-3d-colorful-paint-text-effect-online-801.html',
+    noel:        'https://en.ephoto360.com/noel-text-effect-online-99.html',
+    water:       'https://en.ephoto360.com/create-water-effect-text-online-295.html',
+    matrix:      'https://en.ephoto360.com/matrix-text-effect-154.html',
+    light:       'https://en.ephoto360.com/light-text-effect-futuristic-technology-style-648.html',
+    silver:      'https://en.ephoto360.com/create-glossy-silver-3d-text-effect-online-802.html',
+    devil:       'https://en.ephoto360.com/neon-devil-wings-text-effect-online-683.html',
+    typography:  'https://en.ephoto360.com/create-typography-text-effect-on-pavement-online-774.html',
+    purple:      'https://en.ephoto360.com/purple-text-effect-online-100.html',
+    thunder:     'https://en.ephoto360.com/thunder-text-effect-online-97.html',
+    leaves:      'https://en.ephoto360.com/green-brush-text-effect-typography-maker-online-153.html',
+    '1917':      'https://en.ephoto360.com/1917-style-text-effect-523.html',
+    arena:       'https://en.ephoto360.com/create-cover-arena-of-valor-by-mastering-360.html',
+    hacker:      'https://en.ephoto360.com/create-anonymous-hacker-avatars-cyan-neon-677.html',
+    sand:        'https://en.ephoto360.com/write-names-and-messages-on-the-sand-online-582.html',
+    dragonball:  'https://en.ephoto360.com/create-dragon-ball-style-text-effects-online-809.html',
+    naruto:      'https://en.ephoto360.com/naruto-shippuden-logo-style-text-effect-online-808.html',
+    graffiti:    'https://en.ephoto360.com/create-a-cartoon-style-graffiti-text-effect-online-668.html',
+    cat:         'https://en.ephoto360.com/handwritten-text-on-foggy-glass-online-680.html',
+    gold:        'https://en.ephoto360.com/modern-gold-4-213.html',
+    child:       'https://en.ephoto360.com/write-text-on-wet-glass-online-589.html'
+};
 
 
 
@@ -305,6 +333,18 @@ const SHADOW_MENU_CATEGORIES = [
             'httpstatus', 'redirect', 'robots', 'sitemap', 'ssl', 'cert',
             'cors', 'nslookup', 'traceroute', 'httpget', 'httphead', 'speedtest'
         ]
+},
+
+    {
+    title: '🎨 LOGO MAKER',
+    name: 'LOGO',
+    commands: [
+        'neon', 'metallic', 'ice', 'snow', 'impressive', 'noel',
+        'water', 'matrixlogo', 'light', 'silver', 'devil',
+        'typography', 'purple', 'thunder', 'leaves', '1917',
+        'arena', 'hacker', 'sand', 'dragonball', 'naruto',
+        'graffiti', 'cat', 'gold', 'child'
+    ]
 },
     
     {
@@ -2521,8 +2561,8 @@ _© ${botName(settings, config)}_
                 );
 
                 const metaRaw = args.join(' ').trim();
-                let pack = 'SMILE PRIME MD';
-                let stkAuthor = '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么';
+                let pack = '';
+                let stkAuthor = ' 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙';
                 if (metaRaw) {
                     const parts = metaRaw.includes('|') ? metaRaw.split('|') : metaRaw.split(',');
                     if (parts[0]) pack = parts[0].trim();
@@ -2562,8 +2602,8 @@ _© ${botName(settings, config)}_
                 );
 
                 const metaRaw = args.join(' ').trim();
-                let pack = 'SMILE PRIME MD';
-                let stkAuthor = '么 𝐒𝚳𝚰𝐋𝚵 𝐏𝐑𝐈𝐌𝐄 𝚳𝐃 么';
+                let pack = '';
+                let stkAuthor = ' 𝐒𝚳𝚰𝐋𝚵 𝚳𝚯𝐃𝐙';
                 if (metaRaw) {
                     const parts = metaRaw.includes('|') ? metaRaw.split('|') : metaRaw.split(',');
                     if (parts[0]) pack = parts[0].trim();
